@@ -61,6 +61,12 @@ begin
     return 0;
 end
 
+// The item lists have one column: ExpandInventory only makes the window taller.
+procedure CompatTwoColumnInventory
+begin
+    return 0;
+end
+
 // Height that the barter screen has gained with ExpandBarter (a 4th slot per table: +48 px, below
 // the dialog background window, which stays 480 px high). When the screen is set up the barter
 // window is not final: it does not exist, or it still has the size of the dialog window (640 x 480),

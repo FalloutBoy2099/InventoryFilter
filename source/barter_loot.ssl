@@ -317,7 +317,7 @@ end
 // until it is dropped, and filtering then would shuffle the lists under the engine.
 procedure RunPendingRefilter
 begin
-    if (refilterPending andAlso filterDone andAlso (CursorBusy() == 0)) then begin
+    if (refilterPending andAlso filterDone andAlso (CursorBusy() == 0) andAlso ((get_game_mode bwand GM_COUNTERWIN) == 0)) then begin
         call ReapplyFilters();
     end
 end
@@ -348,15 +348,16 @@ begin
     end
 end
 
-// Hook 24 (inventory move) on the player's screen: with a filter on, the filter is applied again
-// (which also redraws the weight text); otherwise only the weight text is refreshed.
+// Hook 24 (inventory move): with a filter on, the filter is applied again (which also redraws the
+// weight text); otherwise, in the inventory screen, only the weight text is refreshed (the other
+// screens draw theirs by other means).
 procedure MoveItemPCHook
 begin
-    if (SideGet(SIDE_PLAYER, SS_FLAGS)) then begin
+    if (SideGet(SIDE_PLAYER, SS_FLAGS) orElse SideGet(SIDE_OTHER, SS_FLAGS)) then begin
         call ScheduleRefilter();
     end
     else begin
-        if (overlayId) then begin
+        if (overlayId andAlso (get_game_mode bwand GM_INVENTORY)) then begin
             call RefreshPcWeight in (0);
         end
     end

@@ -150,6 +150,7 @@
 #define DEFAULT_MAX_ITEMS       1000
 #define MAX_ITEMS_LIMIT         9999   // the sort keys leave 4 digits for the position of an item
 #define SORT_KEY_SCALE          10000  // sort key = value * SORT_KEY_SCALE + position
+#define SORT_VALUE_MAX          214000 // largest value in a key: 214000 * 10000 + 9999 fits in 32 bits
 
 // Kinds of the other inventory, each with its own kept filters (KeepLootFilters, ...).
 #define TARGET_LOOT             0     // container or body

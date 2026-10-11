@@ -217,6 +217,7 @@ procedure SwappingParty(variable refresh, variable direction)
 begin
     variable member;
     call SwapCloseBags();
+    call SwapClearOfferTable();
     call FreeOriginalOrder(SIDE_PLAYER);
     member := SwapSkipMembers(direction);
     if (SwapMoveInventories(member) == 0) then begin
@@ -226,6 +227,19 @@ begin
         call SwapRefreshUi(obj_name(member));
     end
     call SwapShowPortrait(direction);
+end
+
+// Barter: what lies on the player's offer table goes back to the inventory it came from, before the
+// inventories change hands. Left there, it would come back to the player later and follow the
+// wrong inventory, going to the member the player has been swapped with.
+procedure SwapClearOfferTable
+begin
+    // Not while the screen is closing (isCreated is 0 then): the engine has dealt with its tables.
+    if (isCreated andAlso pcBarterTable) then begin
+        move_obj_inven_to_obj(pcBarterTable, dude_obj);
+        costRefresh := -1;
+        refreshWeight := 1;
+    end
 end
 
 // Closes the bags open in the player's list (the engine function needs AllowUnsafeScripting).

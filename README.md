@@ -2,10 +2,20 @@
 
 Version 2.4. A standalone fork of the InventoryFilter mod for Fallout 2 / sFall. It runs on sFall 4.2.9 or later (tested on 4.4.8) and on sFall 5.0.9 or later (tested on 5.1.6.1).
 
+## Screenshots
+
+sFall 5 with the two-column inventory (`ExpandInventory=1`), game in French: the weapons filter is on, the filter, sort and search buttons are the two strips beside the item list, and the weight of the shown items is under the list.
+
+![sFall 5, two-column inventory, weapons filter](_screenshots/sfall5_1.jpg)
+
+sFall 4 with the standard one-column inventory, game in English: the tools filter is on.
+
+![sFall 4, one-column inventory, tools filter](_screenshots/sfall4_1.jpg)
+
 ## Features
 
 - Category filters (melee weapons, light/thrown weapons, heavy/energy weapons, ammunition, armor, drugs, tools, custom, miscellaneous) on the player's inventory and on the one of the trader, container or party member. Middle click or Ctrl adds a category to the selection.
-- Sorting by name, price, quantity or weight. Releasing a filter or a sort brings the original order back.
+- Sorting by name, price, quantity or weight. Releasing a filter or a sort brings the original order back. With the two-column inventory of sFall 5 (`ExpandInventory=1`) the sorted items run across the rows.
 - **Ammo search** (last button, player window only): left click = ammunition for the weapon in slot 1 (ITEM1), middle click = ammunition for the weapon in slot 2 (ITEM2), right click = normal inventory. Clicking the same button again (left for weapon 1, middle for weapon 2) also ends the search. The search is not available on the other inventory.
 - Drop All / Give All buttons with a text in the language of the game (folder `pcx_locales\<language>`, for English, French, Russian, Czech, German, Hungarian, Italian, Polish, Portuguese and Spanish) or as icons only (`IconOnlyButtons=1` in `InvenFilter.ini`). With icons only, the game's own TAKE ALL button gets an icon too (`frm\invmaup.frm` and `invmadn.frm`, put in place of the game's files at start-up with `fs_copy`, so `UseFileSystemOverride=1` is needed in `ddraw.ini`; sFall 5 turns it on by itself). A language without text pictures uses the icons.
 - Weight and caps display, Drop All button, inventory swap with party members, hotkeys. With a filter on, a first click on the swap arrows only warns; a second click, the filter untouched, turns it off and swaps.
@@ -14,7 +24,7 @@ Version 2.4. A standalone fork of the InventoryFilter mod for Fallout 2 / sFall.
 
 ## Install
 
-Unzip `InventoryFilter.zip` (sFall 5) or `InventoryFilter_sfall4.zip` (sFall 4) into the game folder: the mod goes to `mods\InventoryFilter.dat`. For sFall to load the global scripts of the mods, `ddraw.ini` must contain:
+Unzip `InventoryFilterSfall5.zip` (sFall 5) or `InventoryFilterSfall4.zip` (sFall 4) into the game folder: the mod goes to `mods\InventoryFilter.dat`. For sFall to load the global scripts of the mods, `ddraw.ini` must contain:
 
 ```ini
 GlobalScriptPaths=scripts\gl*.int,scripts\sfall\gl*.int
@@ -57,14 +67,20 @@ Without `-Language` a menu is shown. `-Path` points to the INI of an installatio
 ## Build
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Compile.ps1                    # sFall 5
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Compile.ps1 -Target sfall4     # sFall 4
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Compile.ps1                    # both: sFall 5 then sFall 4
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Compile.ps1 -Target sfall5     # sFall 5 only
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Compile.ps1 -Target sfall4     # sFall 4 only
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Compile.ps1 -NoPackage         # no zip
 ```
 
-- sFall 5: `build\compiled\scripts\gl_InvenFilter.int` and `dist\InventoryFilter.zip`; sFall 4: `build\sfall4\compiled\scripts\gl_InvenFilter.int` and `dist\InventoryFilter_sfall4.zip`.
-- `-Trace` builds a variant that logs its steps to `mods\InventoryFilter.dat\InvenTrace.ini`; delete that file before a new try. Not for normal use.
+- sFall 5: `build\compiled\scripts\gl_InvenFilter.int` and `dist\InventoryFilterSfall5.zip`; sFall 4: `build\sfall4\compiled\scripts\gl_InvenFilter.int` and `dist\InventoryFilterSfall4.zip`.
+- `-Trace` builds a variant that logs its steps to `mods\InventoryFilter.dat\InvenTrace.ini` (zips named `..._trace.zip`); delete that file before a new try. Not for normal use.
 - Compilers: `tools\sslc-sfall5` (sFall 5, GitVerse) and `tools\sslc-sfall4` (sfall-team).
+
+## Known limits
+
+- Party swap: the equipment is not swapped. An item of the member equipped by the player stays with the player when swapping back, and the player's own item taken off goes to the member. In barter, what lies on the player's offer table goes back to the inventory when the swap is made.
+- The filters are applied again after a move only when the game reports it (hooks 9 and 24). A move the game does not report is shown unfiltered until the next click or move.
 
 ## Source layout
 
@@ -75,8 +91,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Compile.ps1 -NoPackage    
 
 ## Differences on sFall 4
 
-- The Drop All button is a small window placed over the inventory.
-- Clicks on the filters, the sort and the search are caught by the mouse hook, and a pressed button is shown by recreating it with other pictures.
+- The Drop All button is a picture drawn in the inventory window (a window of its own went blank when the game redrew the loot screen) and its clicks, like those on the filters, the sort and the search, are found by the mouse position in the mouse hook; a pressed button is shown by recreating it with other pictures.
 - With `ExpandInventory=1` / `ExpandBarter=1` (taller windows in sFall 4.4.4 and later) the weight and filter positions follow the real window height.
 - There is no total weight hook: the weight shown by the engine panel leaves out the items hidden by a filter.
 - SmartBarter ignores what the other scripts of the barter price hook returned.

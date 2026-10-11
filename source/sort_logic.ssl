@@ -7,9 +7,9 @@
 // releasing the sort can bring it back. The unequipped items are moved to a temporary container
 // while a map is built whose keys are the sort value plus the position (so equal values stay
 // unique); the map is then sorted by key (resize_array -2 ascending for names, -3 descending
-// for numbers) and the items are added back in two passes: the odd positions from the end, then the
-// even positions from the end. The engine appends the items it is given and shows the list in
-// reverse, which makes this the order the player sees sorted.
+// for numbers) and the items are added back from the end of that order (ReAddSorted): the engine
+// appends the items it is given and shows the list in reverse, which makes this the order the
+// player sees sorted.
 procedure SortInventory(variable side, variable key, variable redraw)
 begin
     variable owner;
@@ -37,8 +37,10 @@ begin
         end
         else begin
             count := rm_mult_objs_from_inven(owner, item, obj_is_carrying_obj(owner, item));
-            add_mult_objs_to_inven(box, item, count);
+            // The key is read before the item is added to the box: the engine may merge it into a
+            // stack there and free it.
             set_array(sortMap, SortKeyOf(item, key, count, moved), item);
+            add_mult_objs_to_inven(box, item, count);
             moved++;
         end
         item := InvenItemAt(owner, skipped);
@@ -55,7 +57,7 @@ begin
         set_array(items, pos, get_array(sortMap, array_key(sortMap, pos)));
         pos++;
     end
-    call ReAddInTwoPasses(items, total, box, owner);
+    call ReAddSorted(items, total, box, owner);
     free_array(items);
     free_array(sortMap);
     // Whatever the engine refused to give back (a capacity check) returns to the owner by force
@@ -69,6 +71,19 @@ begin
     filterDone := 1;
 end
 
+// A sort value kept within what fits in a key (a larger one would overflow the 32-bit key and
+// wrap): the items above the limit are ordered by position among themselves.
+procedure SortValue(variable value)
+begin
+    if (value > SORT_VALUE_MAX) then begin
+        return SORT_VALUE_MAX;
+    end
+    if (value < 0) then begin
+        return 0;
+    end
+    return value;
+end
+
 // Key of an item in the sort map: the sort value (the name, the price, the quantity count or the
 // weight), then its position so that two items with the same value keep distinct keys.
 procedure SortKeyOf(variable item, variable key, variable count, variable position)
@@ -77,29 +92,37 @@ begin
         return obj_name(item) + "|" + position;
     end
     if (key == 1) then begin
-        return (proto_data(obj_pid(item), PDATA_ITEM_COST) * SORT_KEY_SCALE) + position;
+        return (SortValue(proto_data(obj_pid(item), PDATA_ITEM_COST)) * SORT_KEY_SCALE) + position;
     end
     if (key == 2) then begin
-        return (count * SORT_KEY_SCALE) + position;
+        return (SortValue(count) * SORT_KEY_SCALE) + position;
     end
-    return (sfall_func1("item_weight", item) * SORT_KEY_SCALE) + position;
+    return (SortValue(sfall_func1("item_weight", item)) * SORT_KEY_SCALE) + position;
 end
 
-// Gives the sorted items back from the temporary container to the owner: first the odd positions
-// of the sorted list from the end, then the even ones from the end.
-procedure ReAddInTwoPasses(variable items, variable total, variable box, variable owner)
+// Gives the sorted items back from the temporary container to the owner. The engine appends what it
+// is given and shows the list from its end, so the first sorted item has to be the last one added.
+// With one column of items that is a single pass from the end of the sorted list. With two columns
+// (sFall 5 with ExpandInventory=1) the list is read down the left column then down the right one:
+// the sorted order goes across the rows, so the odd positions are added first (from the end), then
+// the even ones.
+procedure ReAddSorted(variable items, variable total, variable box, variable owner)
 begin
-    variable half;
+    variable step := 1;
     variable pass;
+    variable lastPass := 0;
     variable pos;
     variable index;
     variable item;
     variable amount;
-    half := (total + 1) / 2;
-    for (pass := 1; pass >= 0; pass--) begin
-        pos := half - 1;
+    if (CompatTwoColumnInventory()) then begin
+        step := 2;
+        lastPass := 1;
+    end
+    for (pass := lastPass; pass >= 0; pass--) begin
+        pos := (total - 1 - pass) / step;
         while (pos >= 0) do begin
-            index := (pos * 2) + pass;
+            index := (pos * step) + pass;
             if (index < total) then begin
                 item := get_array(items, index);
                 amount := obj_is_carrying_obj(box, item);

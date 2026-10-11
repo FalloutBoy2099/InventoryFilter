@@ -86,8 +86,9 @@ procedure ShowTipText;
 
 // --- sort_logic.ssl
 procedure SortInventory(variable side, variable key, variable redraw);
+procedure SortValue(variable value);
 procedure SortKeyOf(variable item, variable key, variable count, variable position);
-procedure ReAddInTwoPasses(variable items, variable total, variable box, variable owner);
+procedure ReAddSorted(variable items, variable total, variable box, variable owner);
 procedure GetInventoryOwner(variable side);
 procedure SaveOriginalOrder(variable side);
 procedure OrderMatchesSnapshot(variable owner, variable snapshot);
@@ -146,6 +147,7 @@ procedure SwapButtonPressed(variable next);
 procedure NextSwapPtr;
 procedure BackSwapPtr;
 procedure SwappingParty(variable refresh, variable direction);
+procedure SwapClearOfferTable;
 procedure SwapCloseBags;
 procedure SwapSkipMembers(variable direction);
 procedure SwapMoveInventories(variable member);
@@ -161,6 +163,7 @@ procedure CompatCarriedWeight(variable obj);
 procedure CompatGameLanguage;
 procedure CompatSetFloatPrecision(variable digits);
 procedure CompatInventoryExtraHeight;
+procedure CompatTwoColumnInventory;
 procedure CompatBarterExtraHeight;
 procedure CompatInitButton(variable btn);
 procedure CompatAddButton(variable btn, variable x, variable y, variable w, variable h);

@@ -58,6 +58,13 @@ begin
     return 0;
 end
 
+// 1 when the item lists have two columns (ExpandInventory=1): the sort adds the items back across
+// the rows.
+procedure CompatTwoColumnInventory
+begin
+    return get_ini_setting("ddraw.ini|Interface|ExpandInventory") == 1;
+end
+
 // Height that the barter screen has gained (sFall 4 ExpandBarter): none with sFall 5.
 procedure CompatBarterExtraHeight
 begin

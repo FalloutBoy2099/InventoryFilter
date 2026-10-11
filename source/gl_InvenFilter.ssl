@@ -481,8 +481,10 @@ begin
             end
         end
     end
+    // Also in the loot and barter screens: a move from a hand or the armor slot must go through
+    // the filter, and hook 9 does not tell about every one of them.
+    register_hook_proc(HOOK_INVENTORYMOVE, MoveItemPCHook);
     if (mode bwand GM_INVENTORY) then begin
-        register_hook_proc(HOOK_INVENTORYMOVE, MoveItemPCHook);
         call CompatRegisterWeightHook();
     end
 end
@@ -838,6 +840,10 @@ end
 procedure CreateMessageWin(variable text)
 begin
     variable width;
+    if (filterMessageWin) then begin
+        deleteWin("filter_msg");
+        filterMessageWin := 0;
+    end
     setFont(FONT_TEXT);
     width := sfall_func1("get_text_width", text) + MSG_WIN_PAD;
     sfall_func6("create_win", "filter_msg", get_screen_width - width - MSG_WIN_MARGIN, MSG_WIN_Y, width, MSG_WIN_H, MSG_WIN_FLAGS);
