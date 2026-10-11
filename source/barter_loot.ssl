@@ -1,0 +1,593 @@
+// Weight, caps, containers, barter/loot: item move and barter hooks, weight windows,
+// Drop All button and its hotkey.
+
+#include "InvenFilter.h"
+
+// Largest container size printed (the text area is narrow).
+#define MAX_SIZE_SHOWN          9999
+// The inventory total is printed a few pixels lower than the other weight texts.
+#define TOTAL_WEIGHT_DY         3
+
+// ---- Loot target
+
+// 1 if the loot target accepts items from the player: a container, or a party member.
+procedure CheckLootObject(variable target)
+begin
+    if (obj_item_subtype(target) != ITEM_CONTAINER) then begin
+        return party_member_obj(obj_pid(target));
+    end
+    return 1;
+end
+
+// ---- Carry weight
+
+procedure GetAndSaveDudeWeight
+begin
+    dudeBaseMaxWeight := get_pc_base_stat(STAT_CARRY_WEIGHT);
+    dudeExtraMaxWeight := get_pc_extra_stat(STAT_CARRY_WEIGHT);
+    dudeWeightBonus := GetDudeWeightBonus();
+    swapMaxWeight := CarryWeight(dude_obj);
+end
+
+// Probes the bonus applied on top of the base carry weight stat (perks, traits): sets base to 100
+// and extra to 0, reads the resulting stat, then restores both values.
+procedure GetDudeWeightBonus
+begin
+    variable bonus;
+    set_pc_base_stat(STAT_CARRY_WEIGHT, WEIGHT_PROBE_BASE);
+    set_pc_extra_stat(STAT_CARRY_WEIGHT, 0);
+    bonus := WEIGHT_PROBE_BASE - CarryWeight(dude_obj);
+    set_pc_base_stat(STAT_CARRY_WEIGHT, dudeBaseMaxWeight);
+    set_pc_extra_stat(STAT_CARRY_WEIGHT, dudeExtraMaxWeight);
+    return bonus;
+end
+
+// ---- Weight and caps display
+
+// Weight of the items the player has in his hands and on his body.
+procedure EquippedWeight
+begin
+    variable weight := 0;
+    variable item;
+    item := critter_inven_obj(dude_obj, SLOT_ARMOR);
+    if (item) then begin
+        weight := sfall_func1("item_weight", item);
+    end
+    item := sfall_func2("critter_inven_obj2", dude_obj, SLOT_LEFT_HAND);
+    if (item) then begin
+        weight := weight + sfall_func1("item_weight", item);
+    end
+    item := sfall_func2("critter_inven_obj2", dude_obj, SLOT_RIGHT_HAND);
+    if (item) then begin
+        weight := weight + sfall_func1("item_weight", item);
+    end
+    return weight;
+end
+
+// Redraws the weight of the items in the list (the carried weight counts the equipped items too).
+// The total weight hook must not add the hidden items to what is measured here.
+procedure RefreshPcWeight
+begin
+    variable active;
+    active := pcFilterIsActive;
+    pcFilterIsActive := 0;
+    call WeightWin(CompatCarriedWeight(dude_obj) - EquippedWeight(), 0);
+    pcFilterIsActive := active;
+end
+
+// Draws the player's carried weight on the interface overlay (mode -1 removes it). Shows "n/max"
+// when looting, a labelled total in the inventory; red when over the limit. Takes the swapped
+// companion and the items hidden by the filter into account.
+procedure WeightWin(variable weight, variable mode)
+begin
+    variable text;
+    variable textY;
+    variable maxWeight;
+    variable box;
+    textY := weightWinY;
+    if (overlayId == 0) then begin
+        overlayId := CompatOverlayCreate(WINTYPE_INVENTORY);
+        if (overlayId == -1) then begin
+            overlayId := 0;
+            return 0;
+        end
+    end
+    else begin
+        if (mode == -1) then begin
+            call CompatOverlayDestroy(WINTYPE_INVENTORY, overlayId);
+            overlayId := 0;
+            return 0;
+        end
+        else begin
+            call ClearTextArea(WINTYPE_INVENTORY, SideGet(SIDE_PLAYER, SS_WEIGHT_X), weightWinY);
+        end
+    end
+    maxWeight := swapMaxWeight if (swapMaxWeight != -1) else CarryWeight(dude_obj);
+    setFont(FONT_TEXT);
+    if (currentSwapNumber > 0) then begin
+        weight := weight + ObjWeight(swapPtr);
+        weight := weight - dudeEquipItemsWeight;
+    end
+    box := SideGet(SIDE_PLAYER, SS_TEMP_BOX);
+    if (lootFilter andAlso box) then begin
+        weight := weight + ObjWeight(box);
+    end
+    if (weight > maxWeight) then begin
+        setTextColor(1.00000, 0.10000, 0.00000);
+    end
+    else begin
+        setTextColor(textRed, textGreen, textBlue);
+    end
+    if (lootFilter) then begin
+        text := weight + "/" + maxWeight;
+    end
+    else begin
+        text := message_str_game(GAME_MSG_INVENTRY, GMSG_TOTAL_WEIGHT) + ": " + weight;
+        textY := textY + TOTAL_WEIGHT_DY;
+    end
+    call PrintText(text, SideGet(SIDE_PLAYER, SS_WEIGHT_X), textY, WINTYPE_INVENTORY);
+end
+
+// Weight (or fill percentage) of the loot target, drawn on the right of the loot screen.
+procedure WeightLootWin(variable target)
+begin
+    variable weight;
+    variable box;
+    if (lootWeightShown == 0) then begin
+        lootWeightShown := 1;
+    end
+    else begin
+        call ClearTextArea(WINTYPE_INVENTORY, SideGet(SIDE_OTHER, SS_WEIGHT_X), weightWinY);
+    end
+    setFont(FONT_TEXT);
+    box := SideGet(SIDE_OTHER, SS_TEMP_BOX);
+    if (obj_type(target) == OBJ_TYPE_CRITTER) then begin
+        weight := ObjWeight(target);
+        if (box) then begin
+            weight := weight + ObjWeight(box);
+        end
+        call PrintWeight(weight, npcMaxWeight if (npcExtraWeightStat != -1) else CarryWeight(target), SideGet(SIDE_OTHER, SS_WEIGHT_X), WINTYPE_INVENTORY);
+    end
+    else begin
+        weight := sfall_func1("get_current_inven_size", target);
+        if (box) then begin
+            weight := weight + sfall_func1("get_current_inven_size", box);
+        end
+        if (showPercentSize) then begin
+            weight := round(weight / (containerMaxSize + 0.00000) * 100.00000);
+        end
+        call PrintWeight(weight, -1, SideGet(SIDE_OTHER, SS_WEIGHT_X), WINTYPE_INVENTORY);
+    end
+end
+
+// Weight of the player (items hidden by the filter and on the offer table included) drawn on the
+// barter screen. extra = weight to add (the item being moved).
+procedure BarterWeightWin(variable extra)
+begin
+    variable box;
+    extra := extra + ObjWeight(dude_obj);
+    box := SideGet(SIDE_PLAYER, SS_TEMP_BOX);
+    if (box) then begin
+        extra := extra + ObjWeight(box);
+    end
+    if (traderBarterTable) then begin
+        extra := extra + ObjWeight(traderBarterTable);
+    end
+    if (overlayId == 0) then begin
+        overlayId := CompatOverlayCreate(WINTYPE_BARTER_OVERLAY);
+        if (overlayId == -1) then begin
+            overlayId := 0;
+            return 0;
+        end
+    end
+    else begin
+        call ClearTextArea(WINTYPE_BARTER_OVERLAY, SideGet(SIDE_PLAYER, SS_WEIGHT_X), weightWinY);
+    end
+    if (currentSwapNumber > 0) then begin
+        extra := extra + ObjWeight(swapPtr);
+        extra := extra - dudeEquipItemsWeight;
+    end
+    call PrintWeight(extra, swapMaxWeight if (swapMaxWeight != -1) else CarryWeight(dude_obj), SideGet(SIDE_PLAYER, SS_WEIGHT_X), WINTYPE_BARTER_OVERLAY);
+end
+
+// Weight of the party member bartered with, drawn on the right of the barter screen.
+procedure PartyWeightWin(variable extra)
+begin
+    variable box;
+    if (partyWeightShown == 0) then begin
+        partyWeightShown := 1;
+    end
+    else begin
+        call ClearTextArea(WINTYPE_BARTER_OVERLAY, SideGet(SIDE_OTHER, SS_WEIGHT_X), weightWinY);
+    end
+    extra := extra + ObjWeight(dialogCritter);
+    if (pcBarterTable) then begin
+        extra := extra + ObjWeight(pcBarterTable);
+    end
+    box := SideGet(SIDE_OTHER, SS_TEMP_BOX);
+    if (box) then begin
+        extra := extra + ObjWeight(box);
+    end
+    call PrintWeight(extra, partyMaxWeight, SideGet(SIDE_OTHER, SS_WEIGHT_X), WINTYPE_BARTER_OVERLAY);
+end
+
+// Prints "value/max" (maxValue -1: the container size, as a percentage when PercentSize is on) at
+// x, in red when over the limit.
+procedure PrintWeight(variable value, variable maxValue, variable x, variable winType)
+begin
+    variable text;
+    if (maxValue != -1) then begin
+        text := value + "/" + maxValue;
+    end
+    else begin
+        if (showPercentSize) then begin
+            text := message_str_game(GAME_MSG_INVENTRY, GMSG_TOTAL_WEIGHT) + " " + value + "%";
+            maxValue := 100;
+        end
+        else begin
+            maxValue := containerMaxSize;
+            if (maxValue > MAX_SIZE_SHOWN) then begin
+                maxValue := MAX_SIZE_SHOWN;
+            end
+            text := value + "/" + maxValue;
+        end
+    end
+    if (value > maxValue) then begin
+        setTextColor(1.00000, 0.10000, 0.00000);
+    end
+    else begin
+        setTextColor(textRed, textGreen, textBlue);
+    end
+    call PrintText(text, x, weightWinY, winType);
+end
+
+// Caps of the merchant, drawn on the right of the barter screen.
+procedure TraderCostWin
+begin
+    if (capsShown == 0) then begin
+        if (overlayId == 0) then begin
+            overlayId := CompatOverlayCreate(WINTYPE_BARTER_OVERLAY);
+            if (overlayId == -1) then begin
+                overlayId := 0;
+                return 0;
+            end
+        end
+        capsShown := 1;
+    end
+    else begin
+        call ClearTextArea(WINTYPE_BARTER_OVERLAY, SideGet(SIDE_OTHER, SS_WEIGHT_X), weightWinY);
+    end
+    setTextColor(textRed, textGreen, textBlue);
+    call PrintText("$" + item_caps_total(dialogCritter), SideGet(SIDE_OTHER, SS_WEIGHT_X), weightWinY, WINTYPE_BARTER_OVERLAY);
+end
+
+// Clears the area where a weight or caps text is drawn.
+procedure ClearTextArea(variable winType, variable x, variable y)
+begin
+    call CompatOverlayClear(winType, overlayId, x, y);
+end
+
+// Prints a text centred in the area at x, y, on the overlay of a window type.
+procedure PrintText(variable text, variable x, variable y, variable winType)
+begin
+    variable textX;
+    textX := (OVERLAY_TEXT_W / 2) + x - (sfall_func1("get_text_width", text) / 2);
+    Trace("PrintText win=" + winType + " ovl=" + overlayId + " x=" + x + " y=" + y + " text=" + text)
+    call CompatPrintText(winType, text, x, y, textX);
+end
+
+// ---- Move and barter hooks
+
+// 1 while the left mouse button is held: the engine is then in the loop of a drag and drop, with the
+// dragged item removed from its list.
+procedure CursorBusy
+begin
+    return get_mouse_buttons bwand 1;
+end
+
+// Total weight hook (sFall 5): adds the weight of the items hidden by the player's filter to the
+// total weight reported to the engine for dude_obj.
+procedure TotalWeightHook
+begin
+    variable weight;
+    variable total;
+    if ((pcFilterIsActive == 0) orElse (get_sfall_arg != dude_obj)) then begin
+        return 0;
+    end
+    weight := get_sfall_arg;
+    total := weight + ObjWeight(SideGet(SIDE_PLAYER, SS_TEMP_BOX));
+    set_sfall_arg(1, total);
+    set_sfall_return(total);
+end
+
+// An item that moves into an inventory (from a slot, from the other side, from a barter table) is
+// added to its list without going through the filter. When a filter is on, the filters are
+// applied again after the move; the hooks run before it, so they only raise refilterPending and
+// UpdateLoop (every frame) does the work as soon as the move is over. A move that raises several
+// events counts once.
+procedure ScheduleRefilter
+begin
+    if (SideGet(SIDE_PLAYER, SS_FLAGS) orElse SideGet(SIDE_OTHER, SS_FLAGS)) then begin
+        refilterPending := 1;
+    end
+end
+
+// Called every frame while a screen is open: applies the pending refilter. It waits while a filter is
+// running, and while the mouse button is held: an item dragged with the mouse is out of every list
+// until it is dropped, and filtering then would shuffle the lists under the engine.
+procedure RunPendingRefilter
+begin
+    if (refilterPending andAlso filterDone andAlso (CursorBusy() == 0)) then begin
+        call ReapplyFilters();
+    end
+end
+
+// Applies the filters of both sides again (only the items that changed state are moved). Critical:
+// a click, a hotkey or the closing of the screen must not cut in while items are parked in the
+// hidden containers.
+critical procedure ReapplyFilters
+begin
+    refilterPending := 0;
+    // Not while a bag is open in a list: the filters do not touch it then (see FilterClick). The
+    // refilter stays pending until the bag is closed.
+    if (SideGet(SIDE_PLAYER, SS_FLAGS)) then begin
+        if (ContainerOpen(SIDE_PLAYER)) then begin
+            refilterPending := 1;
+        end
+        else begin
+            call FilterInventory();
+        end
+    end
+    if (filterRightMenu andAlso SideGet(SIDE_OTHER, SS_FLAGS)) then begin
+        if (ContainerOpen(SIDE_OTHER)) then begin
+            refilterPending := 1;
+        end
+        else begin
+            call FilterInventoryRight();
+        end
+    end
+end
+
+// Hook 24 (inventory move) on the player's screen: with a filter on, the filter is applied again
+// (which also redraws the weight text); otherwise only the weight text is refreshed.
+procedure MoveItemPCHook
+begin
+    if (SideGet(SIDE_PLAYER, SS_FLAGS)) then begin
+        call ScheduleRefilter();
+    end
+    else begin
+        if (overlayId) then begin
+            call RefreshPcWeight in (0);
+        end
+    end
+end
+
+// Hook 9 (remove inventory object). Ignored while the filter itself is moving items
+// (filterDone == 0). A move between two inventories (loot, barter tables) schedules the filters
+// again. When looting, otherwise only flags lootWeightPending so that start redraws the loot
+// weight. In barter, two known engine call sites (RMOBJ_ITEM_*) trigger a cost/weight refresh.
+procedure MoveItemHook
+begin
+    variable owner;
+    variable caller;
+    variable item;
+    variable count;
+    if (filterDone == 0) then begin
+        return 0;
+    end
+    caller := sfall_func1("get_sfall_arg_at", 3);
+    Trace("MoveItemHook caller=" + caller)
+    if (((caller == RMOBJ_ITEM_MOVE) andAlso (lootFilter orElse pcInBarter)) orElse (caller == RMOBJ_UNLOAD_WEAPON)) then begin
+        call ScheduleRefilter();
+    end
+    if (((lootWeightPending == 0) andAlso showWeight) andAlso lootFilter) then begin
+        lootWeightPending := 1;
+        return 0;
+    end
+    if ((overlayId == 0) orElse (pcInBarter == 0)) then begin
+        return 0;
+    end
+    if (overlayId andAlso (get_game_mode bwand GM_INVENTORY)) then begin
+        call RefreshPcWeight in (0);
+        return 0;
+    end
+    owner := get_sfall_arg;
+    if ((owner != dude_obj) andAlso (owner != pcBarterTable) andAlso (owner != dialogCritter) andAlso (owner != traderBarterTable)) then begin
+        return 0;
+    end
+    if (caller == RMOBJ_ITEM_MOVE) then begin
+        if ((owner == dude_obj) orElse (owner == pcBarterTable)) then begin
+            costRefresh := -1;
+        end
+        refreshWeight := 1;
+    end
+    else begin
+        if (caller == RMOBJ_ITEM_REMOVED_INVEN) then begin
+            item := get_sfall_arg;
+            count := get_sfall_arg;
+            if (showWeight) then begin
+                call BarterWeightWin(-sfall_func1("item_weight", item) * count);
+            end
+            costRefresh := -3;
+        end
+    end
+end
+
+// Hook 10 (barter price); reads the earlier scripts' results (CompatHookReturn). Stores the
+// barter objects on the first call. With SmartBarter, when the player presses Offer to a
+// non-party NPC, the price difference is settled in caps directly (the NPC pays change, capped
+// by the caps it has; the player pays a shortfall only if the offer table holds caps and the
+// player has enough), then the price is forced to equal the offer so the engine accepts the deal.
+procedure BarterHook
+begin
+    variable args;
+    variable price;
+    variable offer;
+    variable returned;
+    variable settle;
+    variable npcCaps;
+    args := get_sfall_args;
+    if (traderBarterTable == 0) then begin
+        pcInBarter := 1;
+        dialogCritter := get_array(args, BP_PARTNER);
+        traderBarterTable := get_array(args, BP_TRADER_TABLE);
+        pcBarterTable := get_array(args, BP_PLAYER_TABLE);
+    end
+    if ((smartBarter andAlso get_array(args, BP_OFFER_PRESSED)) andAlso (get_array(args, BP_PARTY_MEMBER) == 0)) then begin
+        price := get_array(args, BP_VALUE);
+        offer := get_array(args, BP_OFFER_VALUE);
+        returned := CompatHookReturnCount();
+        if (returned >= 1) then begin
+            price := CompatHookReturn(0);
+        end
+        if (returned >= 2) then begin
+            offer := CompatHookReturn(1);
+        end
+        settle := price - offer;
+        if (settle < 0) then begin
+            npcCaps := item_caps_total(dialogCritter);
+            if (npcCaps > 0) then begin
+                if ((0 - settle) > npcCaps) then begin
+                    settle := 0 - npcCaps;
+                end
+            end
+            else begin
+                settle := 0;
+            end
+        end
+        else begin
+            if ((item_caps_total(pcBarterTable) == 0) orElse (item_caps_total(dude_obj) < settle)) then begin
+                settle := 0;
+            end
+        end
+        if (settle != 0) then begin
+            item_caps_adjust(dude_obj, -settle);
+            item_caps_adjust(dialogCritter, settle);
+            if (settle > 0) then begin
+                display_msg(sprintf(message_str_game(filterMsgFile, MSG_SMART_BARTER_PAID), settle));
+            end
+            set_sfall_arg(BP_VALUE, offer);
+            set_sfall_return(offer);
+        end
+    end
+    if (((costRefresh == 0) andAlso showCaps) andAlso (isPartyBarter == 0)) then begin
+        call TraderCostWin();
+    end
+    if (costRefresh < 0) then begin
+        costRefresh := costRefresh + 1;
+    end
+end
+
+// ---- Drop All button
+
+// 1 if Drop All may be used on the loot target: not in the steal screen, and not on a living critter
+// of another team.
+procedure DropAllUsable
+begin
+    if (read_int(ADDR_IS_STEAL)) then begin
+        return 0;
+    end
+    if ((obj_type(lootObject) == OBJ_TYPE_CRITTER) andAlso (has_trait(TRAIT_OBJECT, lootObject, OBJ_TEAM) != 0) andAlso (critter_state(lootObject) != CSTATE_DEAD)) then begin
+        return 0;
+    end
+    return 1;
+end
+
+// Creates the Drop All button (Give All for a living NPC); nothing where DropAllUsable says no.
+procedure CreateDropAllBtn
+begin
+    variable isCritter;
+    if (DropAllUsable() == 0) then begin
+        return 0;
+    end
+    isCritter := obj_type(lootObject) == OBJ_TYPE_CRITTER;
+    call CompatCreateDropAllBtn((giveAllImage > 0) andAlso isCritter andAlso (critter_state(lootObject) != CSTATE_DEAD));
+end
+
+// Weight (full = 1) or size of the player's equipped items, which stay on him when he drops all.
+procedure CheckDudeEquipItems(variable full)
+begin
+    variable slot := SLOT_ARMOR;
+    variable item;
+    variable total := 0;
+    while (slot <= SLOT_LEFT_HAND) do begin
+        item := sfall_func2("critter_inven_obj2", dude_obj, slot);
+        if (item != 0) then begin
+            if (full) then begin
+                total := total + sfall_func1("item_weight", item);
+            end
+            else begin
+                total := total + proto_data(obj_pid(item), PDATA_ITEM_WEIGHT);
+            end
+        end
+        slot++;
+    end
+    return total;
+end
+
+// Drop All key/button: moves all the player's unequipped items to the loot target, but only when
+// they fit in its remaining capacity (weight for critters, size for containers; equipped items are
+// subtracted since they stay; caps are kept). Otherwise shows an engine message. Runs once per
+// press (dropPress: 0 idle, 1 pressed, 2 done).
+critical procedure KeyDropPress
+begin
+    variable target;
+    variable byWeight;
+    variable carried;
+    variable inTarget;
+    variable capacity;
+    if (dropPress == 0) then begin
+        play_sfx(SFX_DROPALL_PRESS);
+        dropPress := 1;
+    end
+    if ((dropPress == 2) orElse (critter_inven_obj(dude_obj, INVEN_TYPE_INV_COUNT) == 0)) then begin
+        return 0;
+    end
+    dropPress := 2;
+    target := sfall_func0("loot_obj");
+    if (obj_type(target) == OBJ_TYPE_CRITTER) then begin
+        if ((proto_data(obj_pid(target), PDATA_CRITTER_TYPE) != 0) andAlso ((get_proto_data(obj_pid(target), PROTO_CRITTER_FLAGS) bwand CFLG_BARTER) == 0)) then begin
+            create_message_window(message_str_game(GAME_MSG_INVENTRY, GMSG_TOO_HEAVY));
+            return 0;
+        end
+    end
+    byWeight := obj_item_subtype(target) != ITEM_CONTAINER;
+    if (byWeight) then begin
+        carried := ObjWeight(dude_obj);
+        inTarget := ObjWeight(target);
+        capacity := CarryWeight(target);
+    end
+    else begin
+        carried := sfall_func1("get_current_inven_size", dude_obj);
+        inTarget := sfall_func1("get_current_inven_size", target);
+        capacity := get_proto_data(obj_pid(target), PROTO_CONTAINER_SIZE);
+    end
+    carried := carried - CheckDudeEquipItems(byWeight);
+    if (carried > (capacity - inTarget)) then begin
+        create_message_window(message_str_game(GAME_MSG_INVENTRY, GMSG_TOO_HEAVY));
+        return 0;
+    end
+    call MoveObjectInventory(dude_obj, target, 0);
+    sfall_func0("inventory_redraw");
+    // What was dropped into the target must go through its filter.
+    call ScheduleRefilter();
+end
+
+procedure KeyDropEnter
+begin
+    dropPress := 0;
+end
+
+procedure KeyDropLeave
+begin
+    if (dropPress) then begin
+        play_sfx(SFX_DROPALL_RELEASE);
+    end
+    dropPress := 0;
+end
+
+procedure KeyDropRelease
+begin
+    dropPress := 0;
+    play_sfx(SFX_DROPALL_RELEASE);
+end

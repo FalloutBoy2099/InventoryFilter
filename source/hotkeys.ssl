@@ -1,0 +1,63 @@
+// Hotkeys: player keys and NPC keys (the NPC keys follow the nPrefix key).
+
+#include "InvenFilter.h"
+
+#define DEFAULT_NPC_PREFIX      11        // scancode of the "0" key
+
+// Scancode of one [HotKeys] entry: the INI section holds strings, a missing key gives 0.
+procedure HotKeyValue(variable keys, variable name)
+begin
+    variable value;
+    value := get_array(keys, name);
+    if (typeof(value) == 3) then begin
+        value := atoi(value);
+    end
+    return value;
+end
+
+// Reads the [HotKeys] section of the INI into hotKeyCodes: FILTER_COUNT scancodes for the player
+// keys (pMelee .. pMisc), then FILTER_COUNT for the NPC keys (nMelee .. nMisc), in the order of
+// the category buttons. A missing key gives 0, which no key press matches.
+procedure LoadHotKeys
+begin
+    variable keys;
+    variable titles;
+    variable index := 0;
+    keys := sfall_func2("get_ini_section", INI_FILE, "HotKeys");
+    titles := string_split("Melee,WLight,Weapon,Ammo,Armor,Drug,Tool,Custom,Misc", ",");
+    hotKeyCodes := create_array(2 * FILTER_COUNT, 0);
+    while (index < FILTER_COUNT) do begin
+        set_array(hotKeyCodes, index, HotKeyValue(keys, "p" + get_array(titles, index)));
+        set_array(hotKeyCodes, FILTER_COUNT + index, HotKeyValue(keys, "n" + get_array(titles, index)));
+        index++;
+    end
+    npcHotkeyPrefix := HotKeyValue(keys, "nPrefix");
+    if (npcHotkeyPrefix <= 0) then begin
+        npcHotkeyPrefix := DEFAULT_NPC_PREFIX;
+    end
+end
+
+// Category (0..8) bound to a key for a side, -1 if none.
+procedure GetHotKeyIndex(variable side, variable key)
+begin
+    variable index := 0;
+    if (key <= 0) then begin
+        return -1;
+    end
+    while (index < FILTER_COUNT) do begin
+        if (key == get_array(hotKeyCodes, (side * FILTER_COUNT) + index)) then begin
+            return index;
+        end
+        index++;
+    end
+    return -1;
+end
+
+// Toggles a category from the keyboard on a side.
+procedure FilterByKey(variable side, variable index)
+begin
+    if (((side == SIDE_OTHER) andAlso (filterRightMenu == 0)) orElse CursorBusy()) then begin
+        return 0;
+    end
+    call FilterClick(side, index, CLICK_KEY);
+end

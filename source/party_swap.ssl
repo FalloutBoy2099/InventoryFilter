@@ -1,0 +1,395 @@
+// Inventory swap with party members (next/previous buttons, companion carry weight).
+
+#include "InvenFilter.h"
+
+// Swap window: a 150 x 36 strip with the member's name between two arrow buttons.
+#define SWAP_WIN_W              150
+#define SWAP_WIN_H              36
+#define SWAP_BTN_Y              9
+#define SWAP_BTN_W              23
+#define SWAP_BTN_H              20
+#define SWAP_BTN_BACK_X         4
+#define SWAP_BTN_NEXT_X         123
+#define SWAP_BARTER_X           245       // from the left of the barter dialog
+#define SWAP_BARTER_Y           480       // below the barter dialog (plus the ExpandBarter height)
+#define SWAP_LOOT_Y             -36       // above the loot screen
+#define SWAP_COOLDOWN           50        // ms between two swaps
+#define SWAP_NAME_MAX_WIDTH     100       // longer names are drawn smaller, on a narrower area
+#define SWAP_NAME_SMALL_X       30        // area of a long name: x, y, width, height
+#define SWAP_NAME_SMALL_Y       9
+#define SWAP_NAME_SMALL_W       90
+#define SWAP_NAME_SMALL_H       20
+#define SWAP_NAME_Y             13        // a short name is centred on the whole width
+#define SWAP_NAME_H             10
+
+// ---- Party list and swap window creation
+
+// Builds the list of party members the player can swap with (index 0 = the player). partner, the
+// current barter/loot partner, is moved to the end and excluded from the cycle. moveAll tells
+// MoveObjectInventory whether caps move too (when looting, or when the partner is a party member).
+critical procedure GetPartyArray(variable partner)
+begin
+    variable pos;
+    swapPartyArray := party_member_list(0);
+    partyArrayLen := len_array(swapPartyArray) - 1;
+    if (partyArrayLen <= 0) then begin
+        swapPartyArray := 0;
+        return 0;
+    end
+    fix_array(swapPartyArray);
+    moveAll := lootFilter;
+    pos := scan_array(swapPartyArray, partner);
+    if (pos != -1) then begin
+        if (pos != partyArrayLen) then begin
+            set_array(swapPartyArray, pos, get_array(swapPartyArray, partyArrayLen));
+            set_array(swapPartyArray, partyArrayLen, partner);
+        end
+        partyArrayLen := partyArrayLen - 1;
+        moveAll := 1;
+    end
+    currentSwapNumber := 0;
+    return 1;
+end
+
+procedure BarterSwapWin
+begin
+    if (GetPartyArray(dialogCritter)) then begin
+        call CreateSwapWin(SWAP_BARTER_X + swapBarterOffset, SWAP_BARTER_Y + barterExtraHeight);
+    end
+end
+
+procedure LootSwapWin
+begin
+    setFont(FONT_TEXT);
+    if ((read_int(ADDR_IS_STEAL) == 0) andAlso GetPartyArray(lootObject)) then begin
+        call CreateSwapWin(swapLootOffset, SWAP_LOOT_Y);
+    end
+end
+
+// Creates the swap window at an offset from the inventory window (interfaceX, interfaceY).
+procedure CreateSwapWin(variable offsetX, variable offsetY)
+begin
+    swapWinX := interfaceX + offsetX;
+    swapWinY := interfaceY + offsetY;
+    Trace("swap win=" + swapWinX + "/" + swapWinY + " (offset " + offsetX + "/" + offsetY + ")")
+    sfall_func5("create_win", "swap_win", swapWinX, swapWinY, SWAP_WIN_W, SWAP_WIN_H);
+    call SwapName(obj_name(dude_obj));
+    addButton("btn_swap_next", SWAP_BTN_NEXT_X, SWAP_BTN_Y, SWAP_BTN_W, SWAP_BTN_H);
+    addButtonGfx("btn_swap_next", PCX_DIR + "right_dn.pcx", PCX_DIR + "right_up.pcx", "");
+    addButton("btn_swap_back", SWAP_BTN_BACK_X, SWAP_BTN_Y, SWAP_BTN_W, SWAP_BTN_H);
+    addButtonGfx("btn_swap_back", PCX_DIR + "left_dn.pcx", PCX_DIR + "left_up.pcx", "");
+    // The first procedure argument must be an integer 0: sFall 4 rejects a float there and the
+    // script would stop silently (the right filter window would never be built).
+    addButtonProc("btn_swap_back", 0, SwapBtnLeave, SwapPress, SwapButtonBack);
+    addButtonProc("btn_swap_next", 0, SwapBtnLeave, SwapPress, SwapButtonNext);
+    showWin;
+end
+
+// Draws the name of the member the player is swapped with on the swap window.
+procedure SwapName(variable name)
+begin
+    selectWin("swap_win");
+    display(PCX_DIR + "swap_win.pcx");
+    setTextColor(1.00000, 1.00000, 1.00000);
+    if (sfall_func1("get_text_width", name) > SWAP_NAME_MAX_WIDTH) then begin
+        format(name, SWAP_NAME_SMALL_X, SWAP_NAME_SMALL_Y, SWAP_NAME_SMALL_W, SWAP_NAME_SMALL_H, FORMAT_CENTRED);
+    end
+    else begin
+        format(name, 0, SWAP_NAME_Y, SWAP_WIN_W, SWAP_NAME_H, FORMAT_CENTRED);
+    end
+end
+
+// ---- Swap button handlers
+
+// Turns the player's filters off (category buttons, ammo search) and shows all the items again.
+procedure ReleasePlayerFilters
+begin
+    swapWarned := 0;
+    selectWin(SideWin(SIDE_PLAYER));
+    SideSet(SIDE_PLAYER, SS_FLAGS, 0);
+    SideSet(SIDE_PLAYER, SS_FLAGS_BEFORE_SEARCH, 0);
+    call SearchReset(SIDE_PLAYER);
+    call ReleaseFilterButtons(SIDE_PLAYER, -1);
+    showWin;
+    call FilterInventory();
+end
+
+// Swap button press. swapPressState: 0 idle, 1 pressed, 2 armed (cooldown elapsed; filterDone is
+// cleared so the hooks ignore the item moves). The swap itself runs on release
+// (SwapButtonPressed). Refused while a player filter is active.
+critical procedure SwapPress
+begin
+    if (swapPressState) then begin
+        return 0;
+    end
+    swapPressState := 1;
+    if (pcFilterIsActive) then begin
+        // The first press only warns; a second one, with the filter untouched, turns it off.
+        if (swapWarned == 0) then begin
+            swapWarned := 1;
+            display_msg(message_str_game(filterMsgFile, MSG_SWAP_FILTER_ACTIVE));
+            play_sfx(SFX_REFUSED);
+            return 0;
+        end
+        call ReleasePlayerFilters();
+    end
+    // Without AllowUnsafeScripting the open bag cannot be closed by the script: ask the player to.
+    if ((unsafeAllowed == 0) andAlso ContainerOpen(SIDE_PLAYER)) then begin
+        call ContainerRefused();
+        return 0;
+    end
+    play_sfx(SFX_PRESS);
+    if (UnsignedComp(get_uptime, swapReadyAt) > 0) then begin
+        swapPressState := 2;
+        filterDone := 0;
+    end
+end
+
+procedure SwapButtonNext
+begin
+    call SwapButtonPressed(1);
+end
+
+procedure SwapButtonBack
+begin
+    call SwapButtonPressed(0);
+end
+
+procedure SwapBtnLeave
+begin
+    if (swapPressState == 2) then begin
+        play_sfx(SFX_SWAP_RELEASE);
+    end
+    swapPressState := 0;
+    filterDone := 1;
+end
+
+// Swap button release: only acts if the press was armed (swapPressState == 2). Advances the member
+// index (next = 1 forward, 0 back), swaps the inventories and starts a short cooldown.
+critical procedure SwapButtonPressed(variable next)
+begin
+    variable direction;
+    if (swapPressState == 2) then begin
+        swapPressState := 0;
+        if (next) then begin
+            call NextSwapPtr();
+            direction := 1;
+        end
+        else begin
+            call BackSwapPtr();
+            direction := -1;
+        end
+        if (swapMaxWeight == -1) then begin
+            call GetAndSaveDudeWeight();
+        end
+        call SwappingParty(1, direction);
+        filterDone := 1;
+        swapReadyAt := get_uptime + SWAP_COOLDOWN;
+        play_sfx(SFX_SWAP_RELEASE);
+    end
+    swapPressState := 0;
+end
+
+procedure NextSwapPtr
+begin
+    currentSwapNumber := currentSwapNumber + 1;
+    if (currentSwapNumber > partyArrayLen) then begin
+        currentSwapNumber := 0;
+    end
+end
+
+procedure BackSwapPtr
+begin
+    currentSwapNumber := currentSwapNumber - 1;
+    if (currentSwapNumber < 0) then begin
+        currentSwapNumber := partyArrayLen;
+    end
+end
+
+// ---- Swapping
+
+// Swaps the player's inventory with the party member at currentSwapNumber; refresh = refresh the
+// UI, direction = -1 back, 1 next, 0 none (used to skip members). Closes any open bag first, skips
+// members that are out of range, parks the player's own items in swapContainer, then moves the
+// previous member's items back to them and the new member's items to the player. Finally updates
+// the carry weight stats, the weight overlay and the art FID used by the inventory window.
+procedure SwappingParty(variable refresh, variable direction)
+begin
+    variable member;
+    call SwapCloseBags();
+    call FreeOriginalOrder(SIDE_PLAYER);
+    member := SwapSkipMembers(direction);
+    if (SwapMoveInventories(member) == 0) then begin
+        return 0;
+    end
+    if (refresh) then begin
+        call SwapRefreshUi(obj_name(member));
+    end
+    call SwapShowPortrait(direction);
+end
+
+// Closes the bags open in the player's list (the engine function needs AllowUnsafeScripting).
+procedure SwapCloseBags
+begin
+    while (unsafeAllowed andAlso ContainerOpen(SIDE_PLAYER)) do begin
+        call_offset_v2(FN_CONTAINER_EXIT, KEY_CONTAINER_BACK, InvenWindowType);
+    end
+end
+
+// Moves currentSwapNumber on, in the direction of the swap, past the members that cannot trade or
+// that are too far (the player's own turn, 0, always stops it). Returns the member it stops on.
+procedure SwapSkipMembers(variable direction)
+begin
+    variable member;
+    variable flags;
+    variable unswappable;
+    member := get_array(swapPartyArray, currentSwapNumber);
+    while (currentSwapNumber > 0) do begin
+        flags := get_proto_data(obj_pid(member), PROTO_CRITTER_FLAGS);
+        unswappable := ((flags bwand CFLG_BARTER) == 0) orElse (flags bwand CFLG_NOSTEAL);
+        if (unswappable orElse SwapTooFar(member)) then begin
+            if (unswappable == 0) then begin
+                display_msg(obj_name(member) + message_str_game(filterMsgFile, MSG_TOO_FAR));
+            end
+            currentSwapNumber := currentSwapNumber + direction;
+            if (currentSwapNumber > partyArrayLen) then begin
+                currentSwapNumber := 0;
+            end
+            member := get_array(swapPartyArray, currentSwapNumber);
+        end
+        else begin
+            break;
+        end
+    end
+    return member;
+end
+
+// Parks the player's own items in swapContainer, gives the previous member's items back to
+// them and the new member's items to the player, then sets the carry weight stats. Returns 0 when
+// there is nothing to do (the player is asked to swap back before any swap happened).
+procedure SwapMoveInventories(variable member)
+begin
+    if (swapContainer == 0) then begin
+        if (currentSwapNumber == 0) then begin
+            return 0;
+        end
+        swapContainer := create_object_sid(PID_TEMP_BOX, 1, 0, 0);
+        call MoveObjectInventory(dude_obj, swapContainer, moveAll);
+        dudeEquipItemsWeight := ObjWeight(dude_obj);
+    end
+    debug_msg("Filter: Swapping with " + obj_name(member));
+    if (swapPtr != 0) then begin
+        if ((swapPtr == dude_obj) andAlso (member != dude_obj)) then begin
+            call MoveObjectInventory(dude_obj, swapContainer, moveAll);
+            dudeEquipItemsWeight := ObjWeight(dude_obj);
+        end
+        else begin
+            call MoveObjectInventory(dude_obj, swapPtr, moveAll);
+        end
+    end
+    swapPtr := member;
+    if (swapPtr == dude_obj) then begin
+        move_obj_inven_to_obj(swapContainer, dude_obj);
+    end
+    else begin
+        call MoveObjectInventory(swapPtr, dude_obj, moveAll);
+    end
+    if (swapPtr != dude_obj) then begin
+        call SetDudeSwapWeight(swapPtr);
+        swapMaxWeight := CarryWeight(swapPtr);
+    end
+    else begin
+        set_pc_base_stat(STAT_CARRY_WEIGHT, dudeBaseMaxWeight);
+        set_pc_extra_stat(STAT_CARRY_WEIGHT, dudeExtraMaxWeight);
+        swapMaxWeight := CarryWeight(dude_obj);
+    end
+    return 1;
+end
+
+// Redraws what shows the swapped inventory: weight text, item list and the name in the swap window.
+procedure SwapRefreshUi(variable memberName)
+begin
+    startCritical;
+    if (showWeight) then begin
+        if (pcInBarter) then begin
+            call BarterWeightWin(0);
+        end
+        else begin
+            if (lootFilter) then begin
+                call WeightWin(ObjWeight(dude_obj), 0);
+            end
+        end
+    end
+    sfall_func1("inventory_redraw", SIDE_PLAYER);
+    call SwapName(memberName);
+    showWin;
+    endCritical;
+end
+
+// The portrait of the swapped member in the inventory window is set through the game's memory.
+procedure SwapShowPortrait(variable direction)
+begin
+    variable fid;
+    if (unsafeAllowed) then begin
+        fid := obj_art_fid(swapPtr);
+        if (swapPtr != dude_obj) then begin
+            fid := fid bwand FID_STRIP_ANIM_MASK;
+        end
+        write_int(ADDR_INVEN_DUDE_FID, fid);
+        if (direction) then begin
+            write_int(ADDR_DUDE_ROTATION, 2);
+            call_offset_v2(FN_DISPLAY_BODY, -2, InvenWindowType);
+        end
+    end
+end
+
+// 1 if a party member is out of the range of the swap (SwapMaxDistance of the INI, in hexes; 0 is
+// no limit): on another elevation, or farther than that.
+procedure SwapTooFar(variable member)
+begin
+    if (swapMaxDistance <= 0) then begin
+        return 0;
+    end
+    return (elevation(member) != elevation(dude_obj)) orElse (tile_distance_objs(dude_obj, member) > swapMaxDistance);
+end
+
+// Makes the player's carry weight stat mirror the companion: its capacity minus the weight of
+// its items (which now sit in the player's inventory), plus the weight of the player's equipped
+// items that stay on the player.
+procedure SetDudeSwapWeight(variable member)
+begin
+    variable baseStat;
+    variable extraStat;
+    variable capacity;
+    baseStat := get_critter_base_stat(member, STAT_CARRY_WEIGHT);
+    extraStat := get_critter_extra_stat(member, STAT_CARRY_WEIGHT);
+    capacity := baseStat + extraStat - ObjWeight(member);
+    set_critter_base_stat(member, STAT_CARRY_WEIGHT, WEIGHT_PROBE_BASE);
+    set_critter_extra_stat(member, STAT_CARRY_WEIGHT, 0);
+    capacity := capacity + (CarryWeight(member) - WEIGHT_PROBE_BASE);
+    set_critter_base_stat(member, STAT_CARRY_WEIGHT, baseStat);
+    set_critter_extra_stat(member, STAT_CARRY_WEIGHT, extraStat);
+    set_pc_base_stat(STAT_CARRY_WEIGHT, dudeWeightBonus);
+    set_pc_extra_stat(STAT_CARRY_WEIGHT, capacity + dudeEquipItemsWeight);
+end
+
+// ---- Cleanup
+
+procedure DestroySwap
+begin
+    deleteWin("swap_win");
+    if (swapContainer) then begin
+        if (currentSwapNumber > 0) then begin
+            currentSwapNumber := 0;
+            call SwappingParty(0, 0);
+        end
+        destroy_object(swapContainer);
+    end
+    swapPtr := 0;
+    swapContainer := 0;
+    currentSwapNumber := -1;
+    if (swapPartyArray) then begin
+        free_array(swapPartyArray);
+        swapPartyArray := 0;
+    end
+end

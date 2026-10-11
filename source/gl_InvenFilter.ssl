@@ -1,0 +1,872 @@
+// Global script entry point: start (init + main loop), lifecycle hooks
+// (GameModeChangeHook, KeyPressHook, MouseClickHook), window creation/destruction.
+
+#define MOD_NAME "InventoryFilterMk2"
+#define MOD_VERSION "2.4"
+
+#ifdef SFALL4_TRACE
+#define SFALL4
+#define INVDEBUG
+#endif
+
+#include "InvenFilter.h"
+
+// Compile with -mSFALL4 for sFall 4.x, without it for sFall 5.x.
+#ifdef SFALL4
+#include "compat_sfall4.ssl"
+#else
+#include "compat_sfall5.ssl"
+#endif
+
+#ifdef INVDEBUG
+#include "debug_trace.ssl"
+#endif
+
+#include "filter_logic.ssl"
+#include "ui_buttons.ssl"
+#include "sort_logic.ssl"
+#include "hotkeys.ssl"
+#include "barter_loot.ssl"
+#include "party_swap.ssl"
+
+// Screen layout and timing.
+#define MIN_SCREEN_WIDTH        740       // the filter windows sit left of the 640 px inventory
+#define BARTER_DIALOG_W         640
+#define BARTER_DIALOG_H         480
+#define OLD_POS_MARGIN          10        // OldPosition=1: the window sits on the barter dialog...
+#define OLD_POS_BOTTOM          290       // ...ending at this y from its top
+#define INVENTORY_WEIGHT_X      48        // weight text positions (x of its centre area, y)
+#define LOOT_WEIGHT_Y           120
+#define LOOT_OTHER_WEIGHT_MARGIN 111      // from the right edge of the loot window
+#define BARTER_WEIGHT_X         20
+#define BARTER_OTHER_WEIGHT_X   562
+#define BARTER_WEIGHT_Y         109
+#define DROPALL_BACK_X          63        // plate drawn behind the Drop All button
+#define DROPALL_BACK_Y          188
+#define UPDATE_FRAMES           1         // refresh period of the weight texts and of the refilters while a screen is open
+#define INIT_WATCH_FRAMES       60        // start checks once after this delay that the init finished
+#define KEY_F11                 87        // scancode that toggles the mod
+#define MESSAGE_SECONDS         5
+// Status message window (top right corner of the screen).
+#define MSG_WIN_PAD             10        // text padding, added to the width of the text
+#define MSG_WIN_MARGIN          5         // from the right edge of the screen
+#define MSG_WIN_Y               10
+#define MSG_WIN_H               15
+#define MSG_WIN_TEXT_POS        2
+#define MSG_TEXT_FLAGS          0x02010000   // text flags of the message (kept from the original script)
+
+// ---- Entry point and initialization
+
+// Runs in two roles. At game load: checks the requirements, reads the INI, builds the PID tables and
+// registers the hooks (InitMod). Afterwards it is called every UPDATE_FRAMES frames
+// (set_global_script_repeat) while the filter windows exist, to refresh the weight overlays and the
+// tooltip timer (UpdateLoop).
+procedure start
+begin
+    if (game_loaded) then begin
+        call InitMod();
+    end
+    else begin
+        call UpdateLoop();
+    end
+end
+
+// Folder of the Drop All / Give All pictures that have a text in a language ("" if there is none).
+procedure LocaleFolder(variable lang)
+begin
+    variable name;
+    variable known := "english,french,russian,czech,german,hungarian,italian,polish,portuguese,spanish";
+    variable list;
+    variable index := 0;
+    list := string_split(known, ",");
+    while (index < len_array(list)) do begin
+        name := get_array(list, index);
+        if (sfall_func2("string_compare", lang, name)) then begin
+            return name;
+        end
+        index++;
+    end
+    return "";
+end
+
+// Picks the pictures of the Drop All / Give All buttons: with a text in the language when the
+// setting asks for it and the language has pictures, icons otherwise. With icons only, the game's
+// Take All button gets its icon too (the files are put in place of the game's ones).
+procedure ChooseButtonPictures(variable lang)
+begin
+    variable folder := "";
+    variable copied;
+    if (iconOnlyButtons == 0) then begin
+        folder := LocaleFolder(lang);
+    end
+    if (folder != "") then begin
+        buttonPicDir := LOCALE_PCX_DIR + folder + "\\";
+    end
+    else begin
+        buttonPicDir := PCX_DIR;
+    end
+    if (iconOnlyButtons) then begin
+        call CompatEnableFileOverride();
+        copied := fs_copy("art\\intrface\\invmaup.frm", "frm\\invmaup.frm");
+        copied := fs_copy("art\\intrface\\invmadn.frm", "frm\\invmadn.frm");
+    end
+end
+
+// Ends the initialization: stops the watch that start leaves running during it.
+procedure EndInit
+begin
+    initDone := 1;
+    set_global_script_repeat(0);
+end
+
+// Loads the settings and registers the first hooks. A script error stops a procedure silently,
+// so start is called again INIT_WATCH_FRAMES frames after loading and says so if EndInit has not
+// run by then (see UpdateLoop).
+procedure InitMod
+begin
+    variable gameLang;
+    variable overrideLang;
+    variable copied;
+    sfallVersion := (10000 * sfall_ver_major) + (100 * sfall_ver_minor) + sfall_ver_build;
+    if ((sfallVersion < COMPAT_MIN_VERSION) orElse (sfallVersion > COMPAT_MAX_VERSION)) then begin
+        // Checked first: a build made for another sFall generation must stop here with a message,
+        // before it calls anything that its sFall version lacks or means differently.
+        filterMsgFile := sfall_func1("add_extra_msg_file", "inventory_filter.msg");
+        if (sfallVersion < COMPAT_MIN_VERSION) then begin
+            call CreateMessageWin(message_str_game(filterMsgFile, MSG_SFALL_TOO_OLD));
+        end
+        else begin
+            call CreateMessageWin(message_str_game(filterMsgFile, MSG_BUILD_FOR_SFALL4));
+        end
+        return 0;
+    end
+    set_global_script_type(1);
+    set_global_script_repeat(INIT_WATCH_FRAMES);
+    gameLang := CompatGameLanguage();
+    // Language=<folder name> in the INI shows the messages of another language than the game's:
+    // the file of that language is made to stand in for the game language's one.
+    overrideLang := IniGetString("Language");
+    if (overrideLang != "") then begin
+        call CompatEnableFileOverride();
+        if (sfall_func2("string_compare", overrideLang, "russian_dos")) then begin
+            overrideLang := "russian";
+            copied := fs_copy("text\\russian\\game\\inventory_filter.msg", "text\\russian\\game\\inventory_filter.dos.msg");
+        end
+        if (sfall_func2("string_compare", gameLang, overrideLang) == 0) then begin
+            copied := fs_copy("text\\" + gameLang + "\\game\\inventory_filter.msg", "text\\" + overrideLang + "\\game\\inventory_filter.msg");
+        end
+    end
+    filterMsgFile := sfall_func1("add_extra_msg_file", "inventory_filter.msg");
+    if (get_screen_width < MIN_SCREEN_WIDTH) then begin
+        call CreateMessageWin(message_str_game(filterMsgFile, MSG_SCREEN_TOO_SMALL));
+        call EndInit();
+        return 0;
+    end
+    call CompatSetFloatPrecision(2);
+    sideState := create_array(2 * SIDE_FIELDS, 0);
+    call LoadSettings();
+    call ChooseButtonPictures(overrideLang if (overrideLang != "") else gameLang);
+    // Only the party swap writes to the game's memory and calls its functions (portrait of the
+    // companion, closing a bag); without this option those calls would stop the script, so it
+    // does without them.
+    unsafeAllowed := get_ini_setting("ddraw.ini|Debugging|AllowUnsafeScripting") > 0;
+    call LoadHotKeys();
+    call BuildTables();
+    // Last, so that an initialization that stops half way leaves no hook behind.
+    register_hook_proc(HOOK_KEYPRESS, KeyPressHook);
+    register_hook_proc(HOOK_GAMEMODECHANGE, GameModeChangeHook);
+    if (enableState == 0) then begin
+        display_msg(message_str_game(filterMsgFile, MSG_DISABLED_AT_START));
+    end
+    call EndInit();
+end
+
+// Reads the settings of InvenFilter.ini.
+procedure LoadSettings
+begin
+    variable colorIndex;
+    barterOutsideInterface := IniGet("OldPosition") == 0;
+    showWeight := IniGet("ShowWeight");
+    showCaps := IniGet("ShowCaps");
+    smartBarter := IniGet("SmartBarter");
+    if (showWeight) then begin
+        showPercentSize := IniGet("PercentSize");
+    end
+    dropKeyCode := IniGet("DropAllButtonKey");
+    if (dropKeyCode < 0) then begin
+        dropKeyCode := 0;
+    end
+    dropAllButton := IniGet("DropAllButton");
+    giveAllImage := IniGet("UseGiveAllImage");
+    useBackImage := IniGet("UseBackImage");
+    iconOnlyButtons := IniGet("IconOnlyButtons");
+    if (iconOnlyButtons < 0) then begin
+        iconOnlyButtons := 0;
+    end
+    keepOtherFilters := create_array(TARGET_TYPES, 0);
+    savedOtherFlags := create_array(TARGET_TYPES, 0);
+    set_array(keepOtherFilters, TARGET_LOOT, IniGet("KeepLootFilters") > 0);
+    set_array(keepOtherFilters, TARGET_COMPANION, IniGet("KeepCompanionFilters") > 0);
+    set_array(keepOtherFilters, TARGET_MERCHANT, IniGet("KeepMerchantFilters") > 0);
+    keepFilters := IniGet("KeepFilters");
+    if (keepFilters < 0) then begin
+        keepFilters := 0;
+    end
+    maxItems := IniGet("MaxItems");
+    if (maxItems < 1) then begin
+        maxItems := DEFAULT_MAX_ITEMS;
+    end
+    if (maxItems > MAX_ITEMS_LIMIT) then begin
+        maxItems := MAX_ITEMS_LIMIT;
+    end
+    colorIndex := IniGet("TextColor");
+    if (colorIndex == 1) then begin
+        textRed := 0.80000;
+        textGreen := 0.80000;
+        textBlue := 0.20000;
+    end
+    else begin
+        if (colorIndex == 2) then begin
+            textRed := 0.90000;
+            textGreen := 0.90000;
+            textBlue := 0.90000;
+        end
+    end
+    enableState := IniGet("Enable");
+    if (enableState == -1) then begin
+        enableState := 1;
+    end
+    if (get_screen_height > BARTER_DIALOG_H) then begin
+        swapEnabled := IniGet("SwapParty");
+        if (swapEnabled) then begin
+            swapAllContainers := IniGet("SwapContainers");
+            swapMaxDistance := IniGet("SwapMaxDistance");
+            swapLootOffset := IniGet("SwapLootOffset");
+            swapBarterOffset := IniGet("SwapBarterOffset");
+        end
+    end
+    weightWinYShift := weightWinYShift + IniGet("WeightWinShift");
+end
+
+// Appends the PIDs of a comma separated list to a PID array; empty entries are skipped.
+procedure AppendPids(variable list, variable text)
+begin
+    variable parts;
+    variable index := 0;
+    variable pid;
+    parts := string_split(text, ",");
+    while (index < len_array(parts)) do begin
+        pid := atoi(get_array(parts, index));
+        if (pid > 0) then begin
+            resize_array(list, len_array(list) + 1);
+            set_array(list, len_array(list) - 1, pid);
+        end
+        index++;
+    end
+end
+
+// Builds the name tables of the buttons and the tool/custom PID groups (built-in PIDs, then the
+// ones of the INI file).
+procedure BuildTables
+begin
+    filterKinds := create_array(0, 0) + arrayexpr(0, "melee") + arrayexpr(1, "wlight") + arrayexpr(2, "weapon") + arrayexpr(3, "ammo") + arrayexpr(4, "armor") + arrayexpr(5, "drug") + arrayexpr(6, "tool") + arrayexpr(7, "custom") + arrayexpr(8, "misc");
+    sortKinds := create_array(0, 0) + arrayexpr(0, "name") + arrayexpr(1, "price") + arrayexpr(2, "quantity") + arrayexpr(3, "weight");
+    toolGroupPids := create_array(0, 0);
+    call AppendPids(toolGroupPids, "54,52,59,207,210,47,91,409,408,51,85,206,209");
+    call AppendPids(toolGroupPids, IniGetString("ToolGroupPids"));
+    customGroupPids := create_array(0, 0);
+    call AppendPids(customGroupPids, "73,76,80,86,102");
+    call AppendPids(customGroupPids, IniGetString("CustomGroupPids"));
+end
+
+// Called by start after the load: while a filter screen is open, refreshes the weight texts and
+// the tooltip timer. Also reports an initialization that stopped half way.
+procedure UpdateLoop
+begin
+    if (initDone == 0) then begin
+        call CreateMessageWin(message_str_game(filterMsgFile, MSG_INTERNAL_ERROR));
+        call EndInit();
+        return 0;
+    end
+    if (isCreated) then begin
+        if (showWeight) then begin
+            if (lootWeightPending andAlso lootFilter) then begin
+                call WeightWin(ObjWeight(dude_obj), 0);
+                if (lootIsFriendly) then begin
+                    call WeightLootWin(lootObject);
+                end
+                lootWeightPending := 0;
+            end
+            if (refreshWeight) then begin
+                if (overlayId) then begin
+                    call BarterWeightWin(0);
+                end
+                if (partyWeightShown) then begin
+                    call PartyWeightWin(0);
+                end
+                refreshWeight := 0;
+            end
+        end
+        call RunPendingRefilter();
+        call CheckHoverTime();
+    end
+end
+
+// ---- Window lifecycle
+
+// Hook 31 (game mode change): creates the filter windows when entering the inventory, use-item-on,
+// loot or barter screens (GM_FILTER_SCREENS) and destroys them on exit. The right-hand menu exists
+// only for barter, or when looting a container or a party member.
+procedure GameModeChangeHook
+begin
+    variable mode;
+    mode := get_game_mode;
+    if (filterMessageWin andAlso ((mode bwand (GM_WORLDMAP bwor GM_LOADGAME)) orElse get_sfall_arg)) then begin
+        call DestroyMessageWin();
+    end
+    if (enableState == 0) then begin
+        return 0;
+    end
+    if (mode bwand GM_FILTER_SCREENS) then begin
+        lootFilter := mode bwand GM_INTFACELOOT;
+        if (not(isCreated)) then begin
+            isCreated := 1;
+            screenStage := 1;
+            call CreateInvenFilterLeftMenu(lootFilter);
+            Trace("gmc mode=" + mode + " friendly=" + lootIsFriendly + " -> right menu: " + (lootIsFriendly orElse (mode bwand GM_BARTER)))
+            if (lootIsFriendly orElse (mode bwand GM_BARTER)) then begin
+                call CreateInvenFilterRightMenu(lootFilter);
+            end
+            if (keepFilters andAlso SideGet(SIDE_PLAYER, SS_FLAGS)) then begin
+                call FilterInventory();
+            end
+            if (filterRightMenu andAlso SideGet(SIDE_OTHER, SS_FLAGS)) then begin
+                call FilterInventoryRight();
+            end
+            screenStage := 2;
+        end
+    end
+    else begin
+        if (isCreated) then begin
+            call DestroyFilterWin();
+        end
+    end
+end
+
+// Builds the left (player) filter window; looting = 1 when looting. Window position, weight overlay
+// origin and extra widgets (Drop All, party swap) depend on the screen (inventory, loot or barter).
+// Also registers the per-screen hooks: move item (9), barter price (10), inventory move (24),
+// total weight (50) and mouse click (20).
+procedure CreateInvenFilterLeftMenu(variable looting)
+begin
+    variable mode;
+    variable menuX;
+    SideSet(SIDE_PLAYER, SS_BTN_DOWN, create_array(FILTER_COUNT, 0));
+    mode := get_game_mode;
+    menuX := PlaceLeftMenu(mode, looting);
+    SideSet(SIDE_PLAYER, SS_X, menuX);
+    call LayoutWeights(mode, looting);
+    call BuildLeftWindow(menuX);
+    call HookScreen(mode, looting);
+    Trace("left menu done")
+    register_hook_proc(HOOK_MOUSECLICK, MouseClickHook);
+    filterDone := 1;
+end
+
+// Reads the position of the game window the filter window goes beside and sets interfaceX/Y and
+// menuY; returns the x of the window. For a loot screen it also finds the loot object.
+procedure PlaceLeftMenu(variable mode, variable looting)
+begin
+    variable menuX;
+    if (mode bwand GM_BARTER) then begin
+        interfaceX := sfall_func2("get_window_attribute", WINTYPE_DIALOG, WIN_ATTR_X);
+        interfaceY := sfall_func2("get_window_attribute", WINTYPE_DIALOG, WIN_ATTR_Y);
+        barterExtraHeight := CompatBarterExtraHeight();
+        Trace("barter extra=" + barterExtraHeight + " interface=" + interfaceX + "/" + interfaceY + " outside=" + barterOutsideInterface)
+        if (barterOutsideInterface) then begin
+            menuX := interfaceX - FILTER_WIN_W;
+            menuY := interfaceY + BARTER_DIALOG_H + barterExtraHeight - FILTER_WIN_H;
+        end
+        else begin
+            menuX := interfaceX + OLD_POS_MARGIN;
+            menuY := interfaceY + OLD_POS_BOTTOM - FILTER_WIN_H;
+        end
+    end
+    else begin
+        interfaceX := sfall_func2("get_window_attribute", WINTYPE_INVENTORY, WIN_ATTR_X);
+        interfaceY := sfall_func2("get_window_attribute", WINTYPE_INVENTORY, WIN_ATTR_Y);
+        menuX := interfaceX - FILTER_WIN_W;
+        menuY := interfaceY;
+        if (menuX < 0) then begin
+            menuX := 0;
+        end
+        if (looting) then begin
+            lootObject := sfall_func0("loot_obj");
+            lootIsContainer := obj_item_subtype(lootObject) == ITEM_CONTAINER;
+        end
+    end
+    return menuX;
+end
+
+// Where the weight texts go, and for a loot screen the Drop All button and the container size.
+procedure LayoutWeights(variable mode, variable looting)
+begin
+    if (showWeight andAlso (mode bwand GM_INVENTORY)) then begin
+        SideSet(SIDE_PLAYER, SS_WEIGHT_X, INVENTORY_WEIGHT_X);
+        weightWinY := weightWinYShift + CompatInventoryExtraHeight();
+    end
+    if (looting) then begin
+        if (dropAllButton) then begin
+            if (useBackImage) then begin
+                sfall_func4("interface_art_draw", WINTYPE_INVENTORY, PCX_DIR + "DropAll_Back.pcx", DROPALL_BACK_X, DROPALL_BACK_Y);
+            end
+            // After the plate: on sFall 4 the button is a picture drawn over it.
+            call CreateDropAllBtn();
+        end
+        lootIsFriendly := CheckLootObject(lootObject);
+        if (lootIsContainer) then begin
+            containerMaxSize := get_proto_data(obj_pid(lootObject), PROTO_CONTAINER_SIZE);
+        end
+        if (showWeight) then begin
+            lootWeightPending := 1;
+            SideSet(SIDE_PLAYER, SS_WEIGHT_X, INVENTORY_WEIGHT_X);
+            weightWinY := LOOT_WEIGHT_Y;
+            SideSet(SIDE_OTHER, SS_WEIGHT_X, sfall_func2("get_window_attribute", WINTYPE_INVENTORY, WIN_ATTR_WIDTH) - LOOT_OTHER_WEIGHT_MARGIN);
+        end
+    end
+end
+
+// Creates the filter window of the player with its buttons, pressed as they were kept.
+procedure BuildLeftWindow(variable menuX)
+begin
+    createWin("inven_filter", menuX, menuY, FILTER_WIN_W, FILTER_WIN_H);
+    selectWin("inven_filter");
+    display(PCX_DIR + "main_left.pcx");
+    call CreateButtons(SIDE_PLAYER);
+    call RestoreSortButtonStates(SIDE_PLAYER);
+    if (keepFilters) then begin
+        call RestoreFilterStates(SIDE_PLAYER);
+        if (SideGet(SIDE_PLAYER, SS_SEARCH_SLOT)) then begin
+            call CompatSetButtonPressed(ButtonName(GROUP_SEARCH, 0, SIDE_PLAYER), 1);
+        end
+    end
+    showWin;
+end
+
+// Registers the hooks of the screen and creates what hangs on it: the swap window and the weight
+// text in barter, the swap window when looting.
+procedure HookScreen(variable mode, variable looting)
+begin
+    register_hook_proc(HOOK_REMOVEINVENOBJ, MoveItemHook);
+    set_global_script_repeat(UPDATE_FRAMES);
+    if (mode bwand GM_BARTER) then begin
+        // Before the first price hook: the filters kept from the last screen are applied now.
+        pcInBarter := 1;
+        call CompatRegisterBarterHook();
+        SideSet(SIDE_PLAYER, SS_WEIGHT_X, BARTER_WEIGHT_X);
+        weightWinY := BARTER_WEIGHT_Y;
+        SideSet(SIDE_OTHER, SS_WEIGHT_X, BARTER_OTHER_WEIGHT_X);
+        dialogCritter := sfall_func0("dialog_obj");
+        if (swapEnabled) then begin
+            call BarterSwapWin();
+        end
+        if (showWeight) then begin
+            call BarterWeightWin(0);
+        end
+    end
+    else begin
+        if ((swapEnabled andAlso looting) andAlso (swapAllContainers orElse (lootObject == party_member_obj(PID_CAR)))) then begin
+            if (lootIsFriendly andAlso ((mode bwand GM_COMBAT) == 0)) then begin
+                call LootSwapWin();
+            end
+        end
+    end
+    if (mode bwand GM_INVENTORY) then begin
+        register_hook_proc(HOOK_INVENTORYMOVE, MoveItemPCHook);
+        call CompatRegisterWeightHook();
+    end
+end
+
+// Kind of the other inventory of the screen (TARGET_*): a container or a body, a party member
+// (looted or bartered with) or a merchant.
+procedure OtherTargetType
+begin
+    if (lootFilter) then begin
+        if ((lootIsContainer == 0) andAlso (party_member_obj(obj_pid(lootObject)) != 0)) then begin
+            return TARGET_COMPANION;
+        end
+        return TARGET_LOOT;
+    end
+    if (isPartyBarter) then begin
+        return TARGET_COMPANION;
+    end
+    return TARGET_MERCHANT;
+end
+
+// Keeps the filters of the other side for the next time, if the setting of its kind asks for it.
+procedure SaveOtherFilters
+begin
+    if (get_array(keepOtherFilters, otherKind)) then begin
+        set_array(savedOtherFlags, otherKind, SideGet(SIDE_OTHER, SS_FLAGS));
+    end
+end
+
+// Builds the right filter window (barter partner, container or companion being looted).
+procedure CreateInvenFilterRightMenu(variable looting)
+begin
+    variable rightX;
+    SideSet(SIDE_OTHER, SS_BTN_DOWN, create_array(FILTER_COUNT, 0));
+    if (looting) then begin
+        rightX := interfaceX + sfall_func2("get_window_attribute", WINTYPE_INVENTORY, WIN_ATTR_WIDTH);
+    end
+    else begin
+        if (barterOutsideInterface) then begin
+            rightX := interfaceX + BARTER_DIALOG_W;
+        end
+        else begin
+            rightX := interfaceX + BARTER_DIALOG_W - OLD_POS_MARGIN - FILTER_WIN_W;
+        end
+    end
+    SideSet(SIDE_OTHER, SS_X, rightX);
+    Trace("right menu: x=" + rightX + " y=" + menuY + " looting=" + looting)
+    createWin("inven_filter_right", rightX, menuY, FILTER_WIN_W, FILTER_WIN_H);
+    // From now on DestroyFilterWin must release this side, even if the creation stops half way.
+    filterRightMenu := 1;
+    selectWin("inven_filter_right");
+    display(PCX_DIR + "main_right.pcx");
+    call CreateButtons(SIDE_OTHER);
+    call RestoreSortButtonStates(SIDE_OTHER);
+    if (keepFilters) then begin
+        call RestoreFilterStates(SIDE_OTHER);
+    end
+    showWin;
+    if (looting == 0) then begin
+        isPartyBarter := party_member_obj(obj_pid(dialogCritter)) != 0;
+        if (showWeight andAlso isPartyBarter) then begin
+            partyMaxWeight := CarryWeight(dialogCritter);
+            call PartyWeightWin(0);
+        end
+    end
+    // The filters kept for this kind of target come back.
+    otherKind := OtherTargetType();
+    if (get_array(keepOtherFilters, otherKind)) then begin
+        SideSet(SIDE_OTHER, SS_FLAGS, get_array(savedOtherFlags, otherKind));
+        call RestoreFilterStates(SIDE_OTHER);
+        showWin;
+    end
+    Trace("right menu done")
+end
+
+procedure DestroySwapIfAny
+begin
+    if (swapEnabled andAlso (currentSwapNumber > -1)) then begin
+        call DestroySwap();
+    end
+end
+
+// Tears everything down in a strict order: restore the carry-weight stats, move hidden items back
+// to their owners, and only then destroy the temporary containers (destroying them first would
+// delete the hidden items). Also unregisters the hooks and resets the per-screen state.
+procedure DestroyFilterWin
+begin
+    debug_msg("Inventory filter widgets destroy.");
+    if (screenStage == 1) then begin
+        display_msg(message_str_game(filterMsgFile, MSG_INTERNAL_ERROR));
+    end
+    screenStage := 0;
+    if (enterHover) then begin
+        call HoverLeave();
+    end
+    filterDone := 0;
+    pcFilterIsActive := 0;
+    set_global_script_repeat(0);
+    isCreated := 0;
+    deleteWin("inven_filter");
+    call ReleasePlayerSide();
+    if (dropButtonWin) then begin
+        call CompatFreeDropAllBtn();
+        dropButtonWin := 0;
+    end
+    if (filterRightMenu) then begin
+        call SaveOtherFilters();
+        call ReleaseOtherSide();
+    end
+    // The swap window is created with the left menu, so it can exist without the right menu (if
+    // the creation of the screen stopped half way): never leave it behind.
+    call DestroySwapIfAny();
+    // The swap left the carry stats as they were saved; forget the swapped values so that the next
+    // screen reads the current ones (the strength may have changed meanwhile).
+    swapMaxWeight := -1;
+    costRefresh := 0;
+    refreshWeight := 0;
+    isPartyBarter := 0;
+    swapPressState := 0;
+    swapWarned := 0;
+    refilterPending := 0;
+    dropPress := 0;
+    // Hooks are unregistered whatever the screen was, so that none stays behind.
+    register_hook_proc(HOOK_MOUSECLICK, 0);
+    register_hook_proc(HOOK_REMOVEINVENOBJ, 0);
+    register_hook_proc(HOOK_INVENTORYMOVE, 0);
+    register_hook_proc(HOOK_BARTERPRICE, 0);
+    call CompatUnregisterWeightHook();
+    call ResetSideStates();
+    call CompatFreeTextWins();
+    overlayId := 0;
+    lootWeightShown := 0;
+    dialogCritter := 0;
+    hoverButton := 0;
+    npcHotkeyArmed := 0;
+    swapReadyAt := 0;
+end
+
+// Gives the player back the items hidden by the filter, and the carry stats changed for the swap
+// or the barter, then destroys the hidden container.
+procedure ReleasePlayerSide
+begin
+    variable box;
+    if (swapMaxWeight != -1) then begin
+        debug_msg("Filter: Restore dude carry stats.");
+        set_pc_base_stat(STAT_CARRY_WEIGHT, dudeBaseMaxWeight);
+        set_pc_extra_stat(STAT_CARRY_WEIGHT, dudeExtraMaxWeight);
+        swapMaxWeight := -1;
+    end
+    box := SideGet(SIDE_PLAYER, SS_TEMP_BOX);
+    if (box) then begin
+        move_obj_inven_to_obj(box, dude_obj);
+        if (SideGet(SIDE_PLAYER, SS_FLAGS) andAlso (currentSwapNumber < 1)) then begin
+            call ApplyInventoryOrder(SIDE_PLAYER, 0);
+            filterDone := 0;
+        end
+        destroy_object(box);
+    end
+end
+
+// Same for the other side (loot target or barter partner), then removes its window.
+procedure ReleaseOtherSide
+begin
+    variable box;
+    box := SideGet(SIDE_OTHER, SS_TEMP_BOX);
+    if (lootFilter) then begin
+        call ReleaseLootTarget(box);
+    end
+    else begin
+        call ReleaseBarterPartner(box);
+    end
+    if (npcExtraWeightStat != -1) then begin
+        debug_msg("Filter: Restore critter carry stat.");
+        set_critter_extra_stat(lootObject, STAT_CARRY_WEIGHT, npcExtraWeightStat);
+        npcExtraWeightStat := -1;
+    end
+    if (box) then begin
+        destroy_object(box);
+    end
+    deleteWin("inven_filter_right");
+    pcInBarter := 0;
+    call DestroySwapIfAny();
+    filterRightMenu := 0;
+    SideSet(SIDE_OTHER, SS_X, 0);
+end
+
+// Loot screen: the hidden items go back to the loot object, its container size is restored and
+// the dummy critter the filter used is destroyed.
+procedure ReleaseLootTarget(variable box)
+begin
+    lootIsFriendly := 0;
+    if (box) then begin
+        move_obj_inven_to_obj(box, lootObject);
+        if (SideGet(SIDE_OTHER, SS_FLAGS)) then begin
+            call ApplyInventoryOrder(SIDE_OTHER, 0);
+            filterDone := 0;
+        end
+    end
+    if (dialogCritter) then begin
+        destroy_object(dialogCritter);
+    end
+    if (containerMaxSize != -1) then begin
+        set_proto_data(obj_pid(lootObject), PROTO_CONTAINER_SIZE, containerMaxSize);
+        containerMaxSize := -1;
+    end
+end
+
+// Barter screen: the hidden items go back to the partner, whose carry stat (party member) is
+// restored, and the overlay and the barter tables are forgotten.
+procedure ReleaseBarterPartner(variable box)
+begin
+    if (overlayId) then begin
+        call CompatOverlayDestroy(WINTYPE_BARTER_OVERLAY, overlayId);
+    end
+    if (box) then begin
+        move_obj_inven_to_obj(box, dialogCritter);
+        if (SideGet(SIDE_OTHER, SS_FLAGS)) then begin
+            call ApplyInventoryOrder(SIDE_OTHER, 0);
+            filterDone := 0;
+        end
+    end
+    capsShown := 0;
+    traderBarterTable := 0;
+    pcBarterTable := 0;
+    if (isPartyBarter) then begin
+        if (partyExtraWeightStat != -1) then begin
+            debug_msg("Filter: Restore party member carry stat.");
+            set_critter_extra_stat(dialogCritter, STAT_CARRY_WEIGHT, partyExtraWeightStat);
+            partyExtraWeightStat := -1;
+        end
+        partyWeightShown := 0;
+    end
+end
+
+// Forgets the state of both sides at the end of a screen. The filters of the player stay with
+// KeepFilters; those of the other side were saved by SaveOtherFilters, by kind of target.
+procedure ResetSideStates
+begin
+    variable side := SIDE_PLAYER;
+    while (side <= SIDE_OTHER) do begin
+        if (((keepFilters == 0) andAlso (side == SIDE_PLAYER)) orElse (side == SIDE_OTHER)) then begin
+            SideSet(side, SS_FLAGS, 0);
+            SideSet(side, SS_SEARCH_SLOT, 0);
+            SideSet(side, SS_FLAGS_BEFORE_SEARCH, 0);
+        end
+        SideSet(side, SS_SORT, 0);
+        SideSet(side, SS_TEMP_BOX, 0);
+        if (SideGet(side, SS_BTN_DOWN)) then begin
+            free_array(SideGet(side, SS_BTN_DOWN));
+            SideSet(side, SS_BTN_DOWN, 0);
+        end
+        call FreeOriginalOrder(side);
+        side++;
+    end
+end
+
+// ---- Input hooks
+
+// Hook 19 (key press): arg0 = 1 on key down, arg1 = DirectInput scancode. F11 toggles the mod
+// on the map screen and saves the choice to the INI. Otherwise handles the Drop All key, then the
+// hotkeys: the NPC prefix key arms the next key as an NPC-side hotkey. Ignored while the
+// quantity (counter) window is open.
+procedure KeyPressHook
+begin
+    variable isDown;
+    variable key;
+    variable text;
+    variable index;
+    isDown := get_sfall_arg;
+    key := get_sfall_arg;
+    if (((key == KEY_F11) andAlso (isDown == 0)) andAlso (get_game_mode == 0)) then begin
+        if (enableState == 1) then begin
+            text := message_str_game(filterMsgFile, MSG_DISABLED);
+            IniSet("Enable", 0);
+            enableState := 0;
+        end
+        else begin
+            text := message_str_game(filterMsgFile, MSG_ENABLED) + " [" + MOD_NAME + " v" + MOD_VERSION + "]";
+            IniSet("Enable", 1);
+            enableState := 1;
+        end
+        call CreateMessageWin(text);
+    end
+    else begin
+        if ((enableState == 1) andAlso isCreated) then begin
+            if ((key == dropKeyCode) andAlso (get_game_mode bwand GM_INTFACELOOT) andAlso DropAllUsable()) then begin
+                if (isDown == 1) then begin
+                    call KeyDropPress();
+                end
+                if (isDown == 0) then begin
+                    call KeyDropRelease();
+                end
+            end
+            else begin
+                if ((isDown == 1) andAlso ((get_game_mode bwand GM_COUNTERWIN) == 0)) then begin
+                    if (npcHotkeyArmed) then begin
+                        npcHotkeyArmed := 0;
+                        index := GetHotKeyIndex(SIDE_OTHER, key);
+                        if (index != -1) then begin
+                            call FilterByKey(SIDE_OTHER, index);
+                        end
+                    end
+                    else begin
+                        if (key == npcHotkeyPrefix) then begin
+                            if (filterRightMenu) then begin
+                                npcHotkeyArmed := 1;
+                            end
+                        end
+                        else begin
+                            index := GetHotKeyIndex(SIDE_PLAYER, key);
+                            if (index != -1) then begin
+                                call FilterByKey(SIDE_PLAYER, index);
+                            end
+                        end
+                    end
+                end
+            end
+            if ((isDown == 0) andAlso swapPressState) then begin
+                swapPressState := 0;
+            end
+        end
+    end
+end
+
+// Hook 20 (mouse click): arg0 = 1 on press, arg1 = button (0 left, 1 right, 2 middle). On sFall 4
+// the clicks on the filter windows are handled first (CompatMouseClick). Otherwise, with the mouse
+// over one of the buttons: a middle or right click on the search button picks the weapon of the
+// ammo search (or ends it), and a middle click on a filter button toggles that category without
+// clearing the others; the side is picked from the mouse X position.
+procedure MouseClickHook
+begin
+    variable eventType;
+    variable button;
+    eventType := get_sfall_arg;
+    button := get_sfall_arg;
+    Trace("hook20 type=" + eventType + " btn=" + button + " mouse=" + get_mouse_x + "/" + get_mouse_y + " menuY=" + menuY)
+    if (CompatMouseClick(eventType, button)) then begin
+        return 0;
+    end
+    if (hoverButton andAlso (eventType == 1)) then begin
+        if (((button == 1) orElse (button == 2)) andAlso (get_mouse_y >= (menuY + SEARCH_BTN_Y)) andAlso (MouseSide == SIDE_PLAYER)) then begin
+            call SearchButtonClicked(button);
+        end
+        else begin
+            if (button == 2) then begin
+                call FilterClickAt(MouseSide, CLICK_TOGGLE);
+            end
+        end
+    end
+end
+
+// ---- Status message window
+
+procedure CreateMessageWin(variable text)
+begin
+    variable width;
+    setFont(FONT_TEXT);
+    width := sfall_func1("get_text_width", text) + MSG_WIN_PAD;
+    sfall_func6("create_win", "filter_msg", get_screen_width - width - MSG_WIN_MARGIN, MSG_WIN_Y, width, MSG_WIN_H, MSG_WIN_FLAGS);
+    selectWin("filter_msg");
+    gotoXY(MSG_WIN_TEXT_POS, MSG_WIN_TEXT_POS);
+    setTextColor(1.00000, 1.00000, 1.00000);
+    setTextFlags(MSG_TEXT_FLAGS);
+    print(text);
+    showWin;
+    filterMessageWin := 1;
+    call DestroyMessageWin in (MESSAGE_SECONDS);
+end
+
+procedure DestroyMessageWin
+begin
+    if (filterMessageWin) then begin
+        deleteWin("filter_msg");
+    end
+    filterMessageWin := 0;
+end
+
+// ---- Utilities
+
+// Unsigned comparison of two tick values (uptime may wrap): returns 1 if a > b, 0 if equal,
+// -1 if smaller.
+procedure UnsignedComp(variable a, variable b)
+begin
+    if ((a bwxor b) == 0) then begin
+        return 0;
+    end
+    return 1 if ((b == 0) orElse (a div b)) else -1;
+end

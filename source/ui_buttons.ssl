@@ -1,0 +1,518 @@
+// UI: filter/sort/search button creation, visual states (pressed/hover),
+// click handling and tooltips.
+
+#include "InvenFilter.h"
+
+// The message window does not wrap its text: longer messages are cut in two lines.
+#define MESSAGE_WRAP_CHARS      28
+
+// Tooltip: offset from the mouse, text padding and text area.
+#define TIP_OFFSET_X            30
+#define TIP_OFFSET_Y            12
+#define TIP_PAD                 10
+#define TIP_TEXT_X              5
+#define TIP_TEXT_Y              4
+#define TIP_TEXT_H              10
+#define TIP_WIN_FLAGS           4         // MoveOnTop
+
+// ---- Button creation
+
+// Folder of the pictures of a button group.
+procedure ButtonDir(variable group)
+begin
+    if (group == GROUP_FILTER) then begin
+        return "filter";
+    end
+    if (group == GROUP_SORT) then begin
+        return "sort";
+    end
+    return "search";
+end
+
+// Name of the picture set (and of the button) at a position of a group.
+procedure ButtonKind(variable group, variable index)
+begin
+    if (group == GROUP_FILTER) then begin
+        return get_array(filterKinds, index);
+    end
+    if (group == GROUP_SORT) then begin
+        return get_array(sortKinds, index);
+    end
+    return "search";
+end
+
+// Unique name of a button in the window of a side.
+procedure ButtonName(variable group, variable index, variable side)
+begin
+    if (side == SIDE_OTHER) then begin
+        return ButtonDir(group) + "_" + ButtonKind(group, index) + "_R";
+    end
+    return ButtonDir(group) + "_" + ButtonKind(group, index) + "_L";
+end
+
+// Creates a button of the selected window: pictures <kind>_on / _off / _hover_off of its folder,
+// hover procedures for the tooltip, and the click procedure of its group (on sFall 4 the clicks
+// are handled by CompatMouseClick instead).
+procedure CreateButton(variable group, variable index, variable side)
+begin
+    variable name;
+    variable dir;
+    variable y;
+    name := ButtonName(group, index, side);
+    dir := PCX_DIR + ButtonDir(group) + "\\" + ButtonKind(group, index);
+    if (group == GROUP_FILTER) then begin
+        y := FILTER_BTN_Y + (BTN_PITCH * index);
+    end
+    else begin
+        if (group == GROUP_SORT) then begin
+            y := SORT_BTN_Y + (BTN_PITCH * index);
+        end
+        else begin
+            y := SEARCH_BTN_Y;
+        end
+    end
+    call CompatAddButton(name, BTN_X, y, BTN_W, BTN_H);
+    call CompatAddButtonGfx(name, dir + "_on.pcx", dir + "_off.pcx", dir + "_hover_off.pcx");
+    if (group == GROUP_FILTER) then begin
+        CompatAddToggleButtonProc(name, ButtonHOn, ButtonHOff, FilterButtonPressed);
+    end
+    else begin
+        if (group == GROUP_SORT) then begin
+            CompatAddToggleButtonProc(name, ButtonHOn, ButtonHOff, SortButtonPressed);
+        end
+        else begin
+            CompatAddToggleButtonProc(name, ButtonHOn, ButtonHOff, SearchButtonPressed);
+        end
+    end
+    call CompatInitButton(name);
+end
+
+// Creates all the buttons of a side's window (the window must be selected). The search button
+// exists on the player's window only: main_right.pcx has no slot for it.
+procedure CreateButtons(variable side)
+begin
+    variable index := 0;
+    while (index < FILTER_COUNT) do begin
+        call CreateButton(GROUP_FILTER, index, side);
+        index++;
+    end
+    index := 0;
+    while (index < SORT_COUNT) do begin
+        call CreateButton(GROUP_SORT, index, side);
+        index++;
+    end
+    if (side == SIDE_PLAYER) then begin
+        call CreateButton(GROUP_SEARCH, 0, side);
+    end
+end
+
+// ---- Messages
+
+// Shows a message in the current screen (barter dialog or message window).
+procedure ShowFilterMessage(variable text)
+begin
+    if (pcInBarter) then begin
+        sfall_func1("dialog_message", text);
+    end
+    else begin
+        create_message_window(WrapMessage(text));
+    end
+end
+
+// The message window does not wrap its text: cuts a long one in two lines, at the space nearest to
+// its middle (the window splits a text at each line feed).
+procedure WrapMessage(variable text)
+begin
+    variable len;
+    variable half;
+    variable pos := 0;
+    variable best := -1;
+    len := strlen(text);
+    if (len <= MESSAGE_WRAP_CHARS) then begin
+        return text;
+    end
+    half := len / 2;
+    while (pos < len) do begin
+        if (substr(text, pos, 1) == " ") then begin
+            if ((best == -1) orElse (abs(pos - half) < abs(best - half))) then begin
+                best := pos;
+            end
+        end
+        pos++;
+    end
+    if (best == -1) then begin
+        return text;
+    end
+    return substr(text, 0, best) + "\n" + substr(text, best + 1, 0);
+end
+
+// Tells the player why an action is refused while a bag is open in an inventory list: error sound,
+// then the message (which may be a modal box, so the callers fix their button before).
+procedure ContainerRefused
+begin
+    play_sfx(SFX_REFUSED);
+    call ShowFilterMessage(message_str_game(filterMsgFile, MSG_CLOSE_CONTAINER));
+end
+
+// ---- Sort buttons
+
+// Shows the sort buttons of a side pressed according to its sort mode.
+procedure RestoreSortButtonStates(variable side)
+begin
+    variable index := 0;
+    variable mode;
+    selectWin(SideWin(side));
+    mode := SideGet(side, SS_SORT);
+    while (index < SORT_COUNT) do begin
+        call CompatSetButtonPressed(ButtonName(GROUP_SORT, index, side), mode == (index + 1));
+        index++;
+    end
+    showWin;
+end
+
+// Click on a sort button: the same button again releases the sort and brings the original order
+// back. The side is the window under the mouse.
+procedure SortButtonPressed
+begin
+    variable side;
+    variable key;
+    if (enterHover) then begin
+        call HoverLeave();
+    end
+    startCritical;
+    key := SortRowAt(get_mouse_y);
+    if ((key >= 0) andAlso (key < SORT_COUNT)) then begin
+        side := MouseSide;
+        if (ContainerOpen(side)) then begin
+            // The sort would take the bag itself out of the list the game is showing.
+            call RestoreSortButtonStates(side);
+            call ContainerRefused();
+            endCritical;
+            return 0;
+        end
+        play_sfx(SFX_PRESS);
+        if (SideGet(side, SS_SORT) == (key + 1)) then begin
+            SideSet(side, SS_SORT, 0);
+            call RestoreSortButtonStates(side);
+            call ApplyInventoryOrder(side, 1);
+        end
+        else begin
+            SideSet(side, SS_SORT, key + 1);
+            call RestoreSortButtonStates(side);
+            call SortInventory(side, key, 1);
+        end
+    end
+    endCritical;
+end
+
+// ---- Search button
+
+// Ammo search, on the search button of the player's window:
+//   left click   - ammunition for the weapon in hand slot 1 (ITEM1); left click again: normal inventory
+//   middle click - ammunition for the weapon in hand slot 2 (ITEM2); middle click again: normal inventory
+//   right click  - normal inventory, from either search
+// The search is the filter flag FLAG_AMMO_SEARCH of the player's side. The search on the other
+// inventory (merchant, container, companion) does not exist: it would need the search button on
+// the right window (and a slot for it in main_right.pcx).
+
+// Press procedure of the search button (sFall 5: left button only).
+procedure SearchButtonPressed
+begin
+    call SearchButtonClicked(0);
+end
+
+// Click on the search button, button = 0 left, 2 middle, 1 right.
+procedure SearchButtonClicked(variable button)
+begin
+    if (enterHover) then begin
+        call HoverLeave();
+    end
+    // Critical section, like the other buttons: the filtering is long and the script engine could
+    // suspend it, leaving the list undrawn until the next mouse move.
+    startCritical;
+    call SearchClick(button);
+    endCritical;
+end
+
+// The slot to search is 1 for the left button and 2 for the middle one; a click on the button of
+// the slot that is already searched, or the right button, ends the search and brings back the
+// filtering it replaced.
+procedure SearchClick(variable button)
+begin
+    variable btn;
+    variable slot;
+    variable newSlot := 0;
+    selectWin(SideWin(SIDE_PLAYER));
+    swapWarned := 0;
+    btn := ButtonName(GROUP_SEARCH, 0, SIDE_PLAYER);
+    slot := SideGet(SIDE_PLAYER, SS_SEARCH_SLOT);
+    if (ContainerOpen(SIDE_PLAYER)) then begin
+        call CompatSetButtonPressed(btn, slot != 0);
+        showWin;
+        call ContainerRefused();
+        return 0;
+    end
+    if (button == 0) then begin
+        newSlot := 1;
+    end
+    if (button == 2) then begin
+        newSlot := 2;
+    end
+    if (newSlot == slot) then begin
+        newSlot := 0;
+    end
+    if (newSlot == 0) then begin
+        if (slot == 0) then begin
+            call CompatSetButtonPressed(btn, 0);
+            showWin;
+            return 0;
+        end
+        SideSet(SIDE_PLAYER, SS_FLAGS, SideGet(SIDE_PLAYER, SS_FLAGS_BEFORE_SEARCH));
+        SideSet(SIDE_PLAYER, SS_SEARCH_SLOT, 0);
+        SideSet(SIDE_PLAYER, SS_FLAGS_BEFORE_SEARCH, 0);
+        call CompatSetButtonPressed(btn, 0);
+        call RestoreFilterStates(SIDE_PLAYER);
+        play_sfx(SFX_PRESS);
+        showWin;
+        call FilterInventory();
+        return 0;
+    end
+    if (GetHandWeaponCaliber(newSlot) == 0) then begin
+        play_sfx(SFX_REFUSED);
+        call ShowFilterMessage(message_str_game(filterMsgFile, MSG_NO_AMMO_WEAPON));
+        call CompatSetButtonPressed(btn, slot != 0);
+        showWin;
+        return 0;
+    end
+    if (slot == 0) then begin
+        SideSet(SIDE_PLAYER, SS_FLAGS_BEFORE_SEARCH, SideGet(SIDE_PLAYER, SS_FLAGS));
+    end
+    SideSet(SIDE_PLAYER, SS_FLAGS, FLAG_AMMO_SEARCH);
+    SideSet(SIDE_PLAYER, SS_SEARCH_SLOT, newSlot);
+    call ReleaseFilterButtons(SIDE_PLAYER, -1);
+    call CompatSetButtonPressed(btn, 1);
+    play_sfx(SFX_PRESS);
+    showWin;
+    call FilterInventory();
+end
+
+// A category was selected on its own: that replaces the search (the window must be selected).
+procedure SearchReset(variable side)
+begin
+    if (SideGet(side, SS_SEARCH_SLOT)) then begin
+        SideSet(side, SS_SEARCH_SLOT, 0);
+        SideSet(side, SS_FLAGS_BEFORE_SEARCH, 0);
+        call CompatSetButtonPressed(ButtonName(GROUP_SEARCH, 0, side), 0);
+    end
+end
+
+// ---- Filter button states
+
+// Shows the category buttons of a side pressed according to its filter bits.
+procedure RestoreFilterStates(variable side)
+begin
+    variable index := 0;
+    variable down;
+    variable flags;
+    selectWin(SideWin(side));
+    flags := SideGet(side, SS_FLAGS);
+    while (index < FILTER_COUNT) do begin
+        down := (flags bwand GetFilterFlags(index)) != 0;
+        set_array(SideGet(side, SS_BTN_DOWN), index, down);
+        call CompatSetButtonPressed(ButtonName(GROUP_FILTER, index, side), down);
+        index++;
+    end
+end
+
+// Releases the category buttons of a side, except the one at index keep (-1: none). The window must
+// be selected.
+procedure ReleaseFilterButtons(variable side, variable keep)
+begin
+    variable index := 0;
+    while (index < FILTER_COUNT) do begin
+        if (index != keep) then begin
+            set_array(SideGet(side, SS_BTN_DOWN), index, 0);
+            call CompatSetButtonPressed(ButtonName(GROUP_FILTER, index, side), 0);
+        end
+        index++;
+    end
+end
+
+// ---- Filter button clicks
+
+// Press procedure of the category buttons (sFall 5). The side is the window under the mouse.
+procedure FilterButtonPressed
+begin
+    call FilterClickAt(MouseSide, CLICK_MOUSE);
+end
+
+// Click on the category button under the mouse, in the window of a side.
+procedure FilterClickAt(variable side, variable mode)
+begin
+    variable index;
+    // A middle click is a click with the left button free: not while an item is being dragged.
+    if ((mode == CLICK_TOGGLE) andAlso CursorBusy()) then begin
+        return 0;
+    end
+    index := FilterRowAt(get_mouse_y);
+    if (enterHover) then begin
+        call HoverLeave();
+    end
+    if ((index < 0) orElse (index >= FILTER_COUNT)) then begin
+        return 0;
+    end
+    startCritical;
+    call FilterClick(side, index, mode);
+    endCritical;
+end
+
+// Activates the category button at index in the window of a side and filters the inventory shown
+// there. Refused while a bag is open. mode:
+//   CLICK_MOUSE  - a click: Ctrl adds the category to the selection, otherwise it replaces it;
+//                  clicking a pressed button releases it
+//   CLICK_TOGGLE - middle click: adds or removes this category and leaves the others alone
+//   CLICK_KEY    - hotkey, same as CLICK_MOUSE but the button was not clicked, so its look is set by hand
+procedure FilterClick(variable side, variable index, variable mode)
+begin
+    variable btn;
+    variable flag;
+    variable flags;
+    variable down;
+    selectWin(SideWin(side));
+    swapWarned := 0;
+    btn := ButtonName(GROUP_FILTER, index, side);
+    down := get_array(SideGet(side, SS_BTN_DOWN), index);
+    Trace("FilterClick side=" + side + " idx=" + index + " mode=" + mode + " flags=" + SideGet(side, SS_FLAGS) + " down=" + down)
+    if (ContainerOpen(side)) then begin
+        call CompatSetButtonPressed(btn, down != 0);
+        showWin;
+        call ContainerRefused();
+        return 0;
+    end
+    flag := GetFilterFlags(index);
+    flags := SideGet(side, SS_FLAGS);
+    if (down) then begin
+        flags := flags bwand bwnot(flag);
+        set_array(SideGet(side, SS_BTN_DOWN), index, 0);
+        call CompatSetButtonPressed(btn, 0);
+    end
+    else begin
+        if ((mode == CLICK_TOGGLE) orElse key_pressed(DIK_LCONTROL)) then begin
+            flags := flags bwor flag;
+        end
+        else begin
+            flags := flag;
+            call ReleaseFilterButtons(side, index);
+            call SearchReset(side);
+        end
+        set_array(SideGet(side, SS_BTN_DOWN), index, 1);
+        if (mode == CLICK_MOUSE) then begin
+            call CompatButtonSelected(btn);
+        end
+        else begin
+            call CompatSetButtonPressed(btn, 1);
+        end
+    end
+    SideSet(side, SS_FLAGS, flags);
+    play_sfx(SFX_PRESS);
+    showWin;
+    call ApplyFilter(side);
+end
+
+// ---- Hover and tooltips
+
+critical procedure ButtonHOn
+begin
+    Trace("HoverOn")
+    hoverButton := 1;
+    call HoverEnter();
+end
+
+critical procedure ButtonHOff
+begin
+    Trace("HoverOff")
+    hoverButton := 0;
+    call HoverLeave();
+end
+
+procedure HoverEnter
+begin
+    enterHover := 1;
+    call HoverProcess();
+end
+
+procedure HoverLeave
+begin
+    enterHover := 0;
+    enterMouseY := -1;
+    if (tipShown) then begin
+        deleteWin("filter_btn_tips");
+        tipShown := 0;
+    end
+end
+
+procedure CheckHoverTime
+begin
+    if (enterHover andAlso (UnsignedComp(get_uptime, showDelayTime) > 0)) then begin
+        call HoverProcess();
+    end
+end
+
+// Tooltip state machine, polled from CheckHoverTime: compares the mouse position between 600 ms
+// polls and shows the tip when it has not moved; once shown, re-checks every 200 ms and hides
+// the tip when the mouse moves more than 3 px.
+procedure HoverProcess
+begin
+    variable mouseX;
+    variable mouseY;
+    mouseX := get_mouse_x;
+    mouseY := get_mouse_y;
+    if (tipShown) then begin
+        showDelayTime := get_uptime + TIP_RECHECK_DELAY;
+        if ((abs(mouseX - enterMouseX) >= TIP_MOVE_TOLERANCE) orElse (abs(mouseY - enterMouseY) >= TIP_MOVE_TOLERANCE)) then begin
+            call HoverLeave();
+        end
+        return 0;
+    end
+    showDelayTime := get_uptime + TIP_SHOW_DELAY;
+    if ((enterMouseY == -1) orElse (mouseX != enterMouseX) orElse (mouseY != enterMouseY)) then begin
+        enterMouseX := mouseX;
+        enterMouseY := mouseY;
+    end
+    else begin
+        call ShowTipText();
+    end
+end
+
+// Shows the tooltip of the button under the resting mouse, next to it.
+procedure ShowTipText
+begin
+    variable row;
+    variable text;
+    variable textWidth;
+    variable width;
+    if (enterMouseY >= (menuY + SEARCH_BTN_Y)) then begin
+        text := message_str_game(filterMsgFile, MSG_SEARCH_TIP);
+    end
+    else begin
+        if (enterMouseY >= (menuY + SORT_BTN_Y)) then begin
+            row := SortRowAt(enterMouseY);
+            text := message_str_game(filterMsgFile, MSG_SORT_TIP + row);
+        end
+        else begin
+            row := FilterRowAt(enterMouseY);
+            text := message_str_game(filterMsgFile, MSG_FILTER_TIP + row);
+        end
+    end
+    setFont(FONT_TEXT);
+    textWidth := sfall_func1("get_text_width", text);
+    width := textWidth + TIP_PAD;
+    sfall_func6("create_win", "filter_btn_tips", TIP_OFFSET_X + enterMouseX, enterMouseY + TIP_OFFSET_Y, width, TIP_HEIGHT, TIP_WIN_FLAGS);
+    selectWin("filter_btn_tips");
+    fillWin(0.00000, 0.05000, 0.00000);
+    call CompatDrawTipBorder(width);
+    setTextColor(0.70000, 0.70000, 0.70000);
+    format(text, TIP_TEXT_X, TIP_TEXT_Y, textWidth, TIP_TEXT_H, FORMAT_CENTRED);
+    showWin;
+    tipShown := 1;
+end

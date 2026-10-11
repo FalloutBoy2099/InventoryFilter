@@ -1,0 +1,16 @@
+// Optional trace, compiled only with -mINVDEBUG / SFALL4_TRACE (Compile.ps1 -Trace). Appends numbered
+// entries to mods\InventoryFilter.dat\InvenTrace.ini so that what happens in the game can be read
+// afterwards. Use it through the Trace(msg) macro; msg must not contain a comma.
+
+#include "InvenFilter.h"
+
+#define TRACE_FILE "mods\\InventoryFilter.dat\\InvenTrace.ini|Trace|"
+
+procedure DebugTrace(variable msg)
+begin
+    // The counter is a script variable: reading it back from the ini does not work on every sFall
+    // version (the value is cached), which made every entry overwrite the previous one.
+    traceCount := traceCount + 1;
+    sfall_func2("set_ini_setting", TRACE_FILE + "n", traceCount);
+    sfall_func2("set_ini_setting", TRACE_FILE + "e" + traceCount, get_uptime + " " + msg);
+end

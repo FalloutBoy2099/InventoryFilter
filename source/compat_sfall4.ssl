@@ -1,0 +1,366 @@
+// sFall 4.x compatibility layer (4.2.9 and later; tested on 4.4.8). Replaces the sFall 5 features that
+// 4.x lacks. compat_sfall5.ssl provides the same procedures for sFall 5.x.
+
+#include "InvenFilter.h"
+
+// Minimum sFall version, as 10000 * major + 100 * minor + build. 4.2.9 is the first release that has
+// every function the mod calls (interface_overlay, win_fill_color, interface_print and
+// interface_art_draw came last; get_window_attribute 4.2.3, add_extra_msg_file 4.1.9) and the
+// party-member argument of the barter price hook (4.2).
+#define COMPAT_MIN_VERSION 40209
+#define COMPAT_MAX_VERSION 49999   // the interface_overlay calls of this build mean something else in sFall 5
+
+// Window sizes of the unmodified game and what sFall 4 adds with ExpandInventory / ExpandBarter.
+#define INVENTORY_WIN_HEIGHT    377
+#define EXPAND_INVENTORY        88
+#define BARTER_WIN_HEIGHT       180
+#define EXPAND_BARTER           48
+#define EXPAND_BARTER_MIN_SCREEN 528     // ExpandBarter only works from this screen height
+#define BARTER_WIN_MIN_EXPANDED 200      // plausible heights of the barter window once expanded
+#define BARTER_WIN_MAX_EXPANDED 260
+
+// Geometry and pictures of every script button, keyed "<button>|x", "|y", "|w", "|h", "|on", "|off",
+// "|hover" and "|state". sFall 4 has no set_button_state, so a button is shown pressed by deleting
+// it and creating it again with other pictures (as the sFall 4 version of the mod does).
+variable compatButtonGfx;
+
+// ---- Initialization
+
+// sFall 4 cannot change ddraw.ini at run time: UseFileSystemOverride=1 must be set in ddraw.ini
+// for fs_copy (language file installation) to work.
+procedure CompatEnableFileOverride
+begin
+end
+
+// Name of the game language: sFall 4 has no metarule for it, so it is read from fallout2.cfg.
+procedure CompatGameLanguage
+begin
+    return get_ini_string("fallout2.cfg|system|language");
+end
+
+// sFall 4 weights are integers: there is no float formatting to set up.
+procedure CompatSetFloatPrecision(variable digits)
+begin
+end
+
+// Height that the inventory window has gained with ExpandInventory (+88 px). Measured when the
+// window exists; otherwise (not created yet) the option in ddraw.ini decides.
+procedure CompatInventoryExtraHeight
+begin
+    variable height;
+    height := sfall_func2("get_window_attribute", WINTYPE_INVENTORY, WIN_ATTR_HEIGHT);
+    if (height > INVENTORY_WIN_HEIGHT) then begin
+        return height - INVENTORY_WIN_HEIGHT;
+    end
+    if (height > 0) then begin
+        return 0;
+    end
+    if (get_ini_setting("ddraw.ini|Interface|ExpandInventory") == 1) then begin
+        return EXPAND_INVENTORY;
+    end
+    return 0;
+end
+
+// Height that the barter screen has gained with ExpandBarter (a 4th slot per table: +48 px, below
+// the dialog background window, which stays 480 px high). When the screen is set up the barter
+// window is not final: it does not exist, or it still has the size of the dialog window (640 x 480),
+// so it is only measured when it already has the barter height (180, or 228 when expanded). Otherwise
+// sFall's own conditions are used (the option is on and the screen is at least 528 px high).
+procedure CompatBarterExtraHeight
+begin
+    variable height;
+    height := sfall_func2("get_window_attribute", WINTYPE_INVENTORY, WIN_ATTR_HEIGHT);
+    if (height == BARTER_WIN_HEIGHT) then begin
+        return 0;
+    end
+    if ((height >= BARTER_WIN_MIN_EXPANDED) andAlso (height <= BARTER_WIN_MAX_EXPANDED)) then begin
+        return height - BARTER_WIN_HEIGHT;
+    end
+    if ((get_ini_setting("ddraw.ini|Interface|ExpandBarter") == 1) andAlso (get_screen_height >= EXPAND_BARTER_MIN_SCREEN)) then begin
+        return EXPAND_BARTER;
+    end
+    return 0;
+end
+
+// Carried weight of an object, as the engine counts it.
+procedure CompatCarriedWeight(variable obj)
+begin
+    return ObjWeight(obj);
+end
+
+// ---- Script buttons (toggle state)
+
+// sFall 4 cannot make a button a toggle, so every click raises both a press and a release event.
+procedure CompatInitButton(variable btn)
+begin
+end
+
+procedure CompatAddButton(variable btn, variable x, variable y, variable w, variable h)
+begin
+    if (compatButtonGfx == 0) then begin
+        compatButtonGfx := create_array(-1, 0);
+    end
+    set_array(compatButtonGfx, btn + "|x", x);
+    set_array(compatButtonGfx, btn + "|y", y);
+    set_array(compatButtonGfx, btn + "|w", w);
+    set_array(compatButtonGfx, btn + "|h", h);
+    addButton(btn, x, y, w, h);
+end
+
+procedure CompatAddButtonGfx(variable btn, variable picOn, variable picOff, variable picHover)
+begin
+    if (compatButtonGfx == 0) then begin
+        compatButtonGfx := create_array(-1, 0);
+    end
+    set_array(compatButtonGfx, btn + "|on", picOn);
+    set_array(compatButtonGfx, btn + "|off", picOff);
+    set_array(compatButtonGfx, btn + "|hover", picHover);
+    set_array(compatButtonGfx, btn + "|state", 0);
+    addButtonGfx(btn, picOn, picOff, picHover);
+end
+
+// A click has just selected the button: draws it pressed (sFall 5 does it through the toggle).
+procedure CompatButtonSelected(variable btn)
+begin
+    call CompatSetButtonPressed(btn, 1);
+    showWin;
+end
+
+// Shows the button as pressed (1) or released (0): the button is recreated with the "on" picture
+// for every state when pressed. Only acts when the state changes. The selected window must be the
+// one that owns the button.
+procedure CompatSetButtonPressed(variable btn, variable pressed)
+begin
+    variable picOn;
+    if (compatButtonGfx == 0) then begin
+        return 0;
+    end
+    picOn := get_array(compatButtonGfx, btn + "|on");
+    if (picOn == 0) then begin
+        return 0;
+    end
+    pressed := pressed != 0;
+    Trace("setPressed " + btn + " -> " + pressed + " (was " + get_array(compatButtonGfx, btn + "|state") + ")")
+    if (get_array(compatButtonGfx, btn + "|state") == pressed) then begin
+        return 0;
+    end
+    set_array(compatButtonGfx, btn + "|state", pressed);
+    deleteButton(btn);
+    addButton(btn, get_array(compatButtonGfx, btn + "|x"), get_array(compatButtonGfx, btn + "|y"), get_array(compatButtonGfx, btn + "|w"), get_array(compatButtonGfx, btn + "|h"));
+    if (pressed) then begin
+        addButtonGfx(btn, picOn, picOn, picOn);
+    end
+    else begin
+        addButtonGfx(btn, picOn, get_array(compatButtonGfx, btn + "|off"), get_array(compatButtonGfx, btn + "|hover"));
+    end
+    addButtonProc(btn, ButtonHOn, ButtonHOff, 0, 0);
+end
+
+// Binds the hover procedures of a toggle button. Its clicks are not bound to the button: sFall 4
+// raises both a press and a release event, and the mod's own handlers toggle on every call, so a
+// click would select the button and deselect it right away. CompatMouseClick handles the clicks.
+#define CompatAddToggleButtonProc(btn, enterProc, leaveProc, proc) addButtonProc(btn, enterProc, leaveProc, 0, 0)
+
+// Handles the clicks on the filter windows by testing the mouse position, since the buttons carry
+// no click procedure: any button on a category button (the middle one toggles it), left button on a
+// sort button, any button on the search button. Returns 1 if the click was handled.
+procedure CompatMouseClick(variable eventType, variable button)
+begin
+    variable mouseX;
+    variable mouseY;
+    variable side := SIDE_PLAYER;
+    variable windowX;
+    variable rel;
+    variable offset;
+    if (CompatDropAllMouse(eventType, button)) then begin
+        return 1;
+    end
+    if ((eventType != 1) orElse (button > 2)) then begin
+        return 0;
+    end
+    mouseX := get_mouse_x;
+    mouseY := get_mouse_y;
+    if ((mouseY < menuY) orElse (mouseY >= (menuY + FILTER_WIN_H))) then begin
+        return 0;
+    end
+    windowX := SideGet(SIDE_PLAYER, SS_X);
+    if ((mouseX < windowX) orElse (mouseX >= (windowX + FILTER_WIN_W))) then begin
+        windowX := SideGet(SIDE_OTHER, SS_X);
+        if ((filterRightMenu == 0) orElse (mouseX < windowX) orElse (mouseX >= (windowX + FILTER_WIN_W))) then begin
+            return 0;
+        end
+        side := SIDE_OTHER;
+    end
+    if ((mouseX < (windowX + BTN_X)) orElse (mouseX >= (windowX + BTN_X + BTN_W))) then begin
+        return 0;
+    end
+    rel := mouseY - (menuY + FILTER_ROW_Y);
+    Trace("cmc side=" + side + " rel=" + rel + " button=" + button)
+    if ((rel >= 0) andAlso (rel < (FILTER_COUNT * BTN_PITCH))) then begin
+        offset := rel - ((rel / BTN_PITCH) * BTN_PITCH);
+        if ((offset < (FILTER_BTN_Y - FILTER_ROW_Y)) orElse (offset > BTN_H) orElse (button == 1)) then begin
+            return 0;
+        end
+        if (button == 2) then begin
+            call FilterClickAt(side, CLICK_TOGGLE);
+        end
+        else begin
+            call FilterClickAt(side, CLICK_MOUSE);
+        end
+        return 1;
+    end
+    rel := mouseY - (menuY + SORT_BTN_Y);
+    if ((button == 0) andAlso (rel >= 0) andAlso (rel < (SORT_COUNT * BTN_PITCH))) then begin
+        offset := rel - ((rel / BTN_PITCH) * BTN_PITCH);
+        if (offset < BTN_H) then begin
+            call SortButtonPressed();
+            return 1;
+        end
+        return 0;
+    end
+    // The search button is on the player's window only: left, middle and right clicks all act on it.
+    if ((side == SIDE_PLAYER) andAlso (mouseY >= (menuY + SEARCH_BTN_Y)) andAlso (mouseY < (menuY + SEARCH_BTN_Y + BTN_H))) then begin
+        call SearchButtonClicked(button);
+        return 1;
+    end
+    return 0;
+end
+
+// ---- Drop All / Give All button
+
+// sFall 4 cannot add a button to the game's inventory window. A window of its own over it went
+// blank when the game redrew the loot screen (Take All), so the button is a picture drawn in the
+// inventory window, like the plate behind it, and the clicks are found by the mouse position
+// (CompatDropAllMouse). giveAll = use the "Give All" pictures. dropButtonWin only flags that the
+// button exists.
+procedure CompatCreateDropAllBtn(variable giveAll)
+begin
+    dropArtName := "dropall";
+    if (giveAll) then begin
+        dropArtName := "giveall";
+    end
+    dropArtDown := 0;
+    call CompatDrawDropAllBtn(0);
+    dropButtonWin := 1;
+end
+
+// Draws the button: pressed = 1 with the pressed picture.
+procedure CompatDrawDropAllBtn(variable pressed)
+begin
+    variable suffix := "_up.pcx";
+    if (pressed) then begin
+        suffix := "_dn.pcx";
+    end
+    sfall_func4("interface_art_draw", WINTYPE_INVENTORY, buttonPicDir + dropArtName + suffix, DROPALL_X, DROPALL_Y);
+end
+
+// Mouse click hook (left button): a press on the button draws it pressed and does the Drop All,
+// the release draws it again. Returns 1 when the press was on the button.
+procedure CompatDropAllMouse(variable eventType, variable button)
+begin
+    variable x;
+    variable y;
+    if ((dropButtonWin == 0) orElse (button != 0)) then begin
+        return 0;
+    end
+    if (eventType == 0) then begin
+        if (dropArtDown) then begin
+            dropArtDown := 0;
+            call CompatDrawDropAllBtn(0);
+            call KeyDropRelease();
+        end
+        return 0;
+    end
+    x := get_mouse_x - interfaceX - DROPALL_X;
+    y := get_mouse_y - interfaceY - DROPALL_Y;
+    if ((x < 0) orElse (y < 0) orElse (x >= DROPALL_SIZE) orElse (y >= DROPALL_SIZE)) then begin
+        return 0;
+    end
+    dropArtDown := 1;
+    call CompatDrawDropAllBtn(1);
+    call KeyDropPress();
+    return 1;
+end
+
+// Nothing to free: the picture goes with the window.
+procedure CompatFreeDropAllBtn
+begin
+end
+
+// ---- Interface overlay (weight and caps text)
+
+// sFall 4 keeps one overlay per window type and no ids: the id is only a "created" flag. (A small
+// window for each text was tried: the game's redraw after Take All put them under its own window.)
+procedure CompatOverlayCreate(variable winType)
+begin
+    sfall_func2("interface_overlay", winType, 1);
+    return 1;
+end
+
+procedure CompatOverlayDestroy(variable winType, variable id)
+begin
+    sfall_func2("interface_overlay", winType, 0);
+end
+
+// Clears the area of a weight or caps text, a little wider than its box: a long label (translated)
+// can reach past it, and what is left outside would show through the next text. The clear of a
+// rectangle leaves the old text visible on some installs: the plain inventory screen, where the
+// overlay holds one text only, clears all of it.
+procedure CompatOverlayClear(variable winType, variable id, variable x, variable y)
+begin
+    sfall_func6("interface_overlay", winType, 2, x - OVERLAY_TEXT_MARGIN, y, OVERLAY_TEXT_W + (2 * OVERLAY_TEXT_MARGIN), OVERLAY_TEXT_H);
+    if ((winType == WINTYPE_INVENTORY) andAlso (lootFilter == 0)) then begin
+        sfall_func2("interface_overlay", winType, 2);
+    end
+end
+
+// Draws a text on the window's only overlay: textX = where the text starts, y = top of its area.
+procedure CompatPrintText(variable winType, variable text, variable x, variable y, variable textX)
+begin
+    sfall_func5("interface_print", text, winType, textX, y + OVERLAY_TEXT_DY, 0);
+end
+
+// Nothing: the overlay goes with its window.
+procedure CompatFreeTextWins
+begin
+end
+
+// ---- Tooltips
+
+// Draws a 1 px border around the selected tooltip window (16 px high).
+procedure CompatDrawTipBorder(variable width)
+begin
+    sfall_func5("win_fill_color", 0, 0, width, 1, TIP_BORDER_COLOR);
+    sfall_func5("win_fill_color", 0, TIP_HEIGHT - 1, width, 1, TIP_BORDER_COLOR);
+    sfall_func5("win_fill_color", 0, 0, 1, TIP_HEIGHT, TIP_BORDER_COLOR);
+    sfall_func5("win_fill_color", width - 1, 0, 1, TIP_HEIGHT, TIP_BORDER_COLOR);
+end
+
+// ---- Hooks
+
+// sFall 4 cannot read what the previous hook scripts returned: SmartBarter then ignores them.
+procedure CompatHookReturnCount
+begin
+    return 0;
+end
+
+procedure CompatHookReturn(variable index)
+begin
+    return 0;
+end
+
+// Barter price hook. Plain registration: a special one is never undone in sFall 4 and leaves its
+// position counter behind, which breaks the hook scripts of other mods.
+procedure CompatRegisterBarterHook
+begin
+    register_hook_proc(HOOK_BARTERPRICE, BarterHook);
+end
+
+// sFall 4 has no total weight hook: the engine weight display ignores hidden items.
+procedure CompatRegisterWeightHook
+begin
+end
+
+procedure CompatUnregisterWeightHook
+begin
+end

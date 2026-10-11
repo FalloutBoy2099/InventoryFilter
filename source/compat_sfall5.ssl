@@ -1,0 +1,229 @@
+// sFall 5.x compatibility layer (default target). Wraps the calls whose form differs from sFall 4.
+// compat_sfall4.ssl provides the same procedures for sFall 4.x.
+
+#include "InvenFilter.h"
+
+// Minimum sFall version, as 10000 * major + 100 * minor + build. 5.0.3 is the first release with
+// the script buttons (add_button, set_button_state...), the total weight hook and the overlay ids;
+// before 5.0.9 the "remove inventory object" hook did not report the owner (fixed in 5.0.8.5),
+// which the barter weight refresh needs. Newer features are used only when the running sFall has
+// them (see the version tests below).
+#define COMPAT_MIN_VERSION 50009
+#define COMPAT_MAX_VERSION 99999
+#define METARULE_GAME_LANGUAGE   67      // sFall 5.1.1: metarule ids
+#define METARULE_FLOAT_PRECISION 69
+#define OBJ_CUR_WEIGHT_FLT 668           // has_trait(TRAIT_OBJECT, obj, ...): weight with its fraction, 5.1.1
+#define VERSION_FLOAT_WEIGHT 50101       // 5.1.1: game language and float precision metarules
+
+// ---- Initialization
+
+// Enables the file system override so that fs_copy can install the language file. Only called
+// when the INI asks for another language, since it changes the sFall configuration.
+procedure CompatEnableFileOverride
+begin
+    set_config_setting("Misc", "UseFileSystemOverride", 1);
+end
+
+// Carried weight of an object, as the engine counts it (with its fraction from 5.1.1).
+procedure CompatCarriedWeight(variable obj)
+begin
+    if (sfallVersion >= VERSION_FLOAT_WEIGHT) then begin
+        return has_trait(TRAIT_OBJECT, obj, OBJ_CUR_WEIGHT_FLT);
+    end
+    return ObjWeight(obj);
+end
+
+// Name of the game language (as in fallout2.cfg), e.g. "english". Older sFall 5 releases have no
+// metarule for it: the file is read instead, as with sFall 4.
+procedure CompatGameLanguage
+begin
+    if (sfallVersion >= VERSION_FLOAT_WEIGHT) then begin
+        return metarule(METARULE_GAME_LANGUAGE, 0);
+    end
+    return get_ini_string("fallout2.cfg|system|language");
+end
+
+// Number of decimals used when a float is converted to a string. Before 5.1.1 the weights of the
+// game are integers, so there is nothing to set up.
+procedure CompatSetFloatPrecision(variable digits)
+begin
+    if (sfallVersion >= VERSION_FLOAT_WEIGHT) then begin
+        metarule(METARULE_FLOAT_PRECISION, digits);
+    end
+end
+
+// Height that the inventory screen has gained (sFall 4 ExpandInventory): none with sFall 5.
+procedure CompatInventoryExtraHeight
+begin
+    return 0;
+end
+
+// Height that the barter screen has gained (sFall 4 ExpandBarter): none with sFall 5.
+procedure CompatBarterExtraHeight
+begin
+    return 0;
+end
+
+// ---- Script buttons (toggle state)
+
+// Makes the button a toggle: the engine then raises one event per click (press when it gets
+// checked, release when it gets unchecked), so the same procedure can be bound to both.
+procedure CompatInitButton(variable btn)
+begin
+    sfall_func3("set_button_state", btn, 1, 1);
+end
+
+// Binds one procedure to a toggle button (see CompatInitButton).
+#define CompatAddToggleButtonProc(btn, enterProc, leaveProc, proc) addButtonProc(btn, enterProc, leaveProc, proc, proc)
+
+procedure CompatAddButton(variable btn, variable x, variable y, variable w, variable h)
+begin
+    addButton(btn, x, y, w, h);
+end
+
+procedure CompatAddButtonGfx(variable btn, variable picOn, variable picOff, variable picHover)
+begin
+    addButtonGfx(btn, picOn, picOff, picHover);
+end
+
+// A click has just selected the button. Being a toggle, it is already drawn pressed by the
+// engine, so there is nothing to do.
+procedure CompatButtonSelected(variable btn)
+begin
+end
+
+// Shows the button as pressed (1) or released (0).
+procedure CompatSetButtonPressed(variable btn, variable pressed)
+begin
+    sfall_func3("set_button_state", btn, 2, pressed);
+end
+
+// Handles a mouse click on the filter windows by hit-testing; sFall 5 uses button procedures
+// instead, so there is nothing to do. Returns 1 if the click was handled.
+procedure CompatMouseClick(variable eventType, variable button)
+begin
+    return 0;
+end
+
+// ---- Drop All / Give All button
+
+// Adds the button to the inventory window; giveAll = use the "Give All" pictures.
+procedure CompatCreateDropAllBtn(variable giveAll)
+begin
+    variable name := "dropall";
+    if (giveAll) then begin
+        name := "giveall";
+    end
+    dropButtonWin := sfall_func8("add_button", WINTYPE_INVENTORY, DROPALL_X, DROPALL_Y, DROPALL_SIZE, DROPALL_SIZE, buttonPicDir + name + "_up.pcx", buttonPicDir + name + "_dn.pcx", "");
+    if (dropButtonWin > 0) then begin
+        sfall_func5("set_button_proc", dropButtonWin, &KeyDropPress, &KeyDropRelease, &KeyDropEnter, &KeyDropLeave);
+    end
+    else begin
+        dropButtonWin := 0;
+    end
+end
+
+// The button is a real one: its procedures are called by the game.
+procedure CompatDropAllMouse(variable eventType, variable button)
+begin
+    return 0;
+end
+
+procedure CompatFreeDropAllBtn
+begin
+    sfall_func1("button_free", dropButtonWin);
+end
+
+// ---- Interface overlay (weight and caps text)
+
+// Creates the overlay of a window type and returns its id (-1 on failure).
+procedure CompatOverlayCreate(variable winType)
+begin
+    return sfall_func2("interface_overlay", winType, 1);
+end
+
+procedure CompatOverlayDestroy(variable winType, variable id)
+begin
+    sfall_func3("interface_overlay", winType, 0, id);
+end
+
+// Clears the area of a weight or caps text, a little wider than its box: a long label (translated)
+// can reach past it, and what is left outside would show through the next text.
+procedure CompatOverlayClear(variable winType, variable id, variable x, variable y)
+begin
+    sfall_func7("interface_overlay", winType, 2, id, x - OVERLAY_TEXT_MARGIN, y, OVERLAY_TEXT_W + (2 * OVERLAY_TEXT_MARGIN), OVERLAY_TEXT_H);
+end
+
+// Draws a text on the overlay of a window type: textX = where the text starts, y = top of its area.
+procedure CompatPrintText(variable winType, variable text, variable x, variable y, variable textX)
+begin
+    sfall_func3("interface_overlay", winType, 3, overlayId);
+    sfall_func5("interface_print", text, winType, textX, y + OVERLAY_TEXT_DY, 0);
+    sfall_func3("interface_overlay", winType, 3, 0);
+end
+
+// Nothing: the overlays go with their windows.
+procedure CompatFreeTextWins
+begin
+end
+
+// ---- Tooltips
+
+// Draws a 1 px border around the selected tooltip window (16 px high). draw_line comes with 5.0.7;
+// before that four filled strips draw the same border.
+procedure CompatDrawTipBorder(variable width)
+begin
+    variable right := width - 1;
+    variable lastRow;
+    lastRow := TIP_HEIGHT - 1;
+    if (sfall_func1("metarule_exist", "draw_line")) then begin
+        sfall_func6("draw_line", -1, 0, 0, right, 0, TIP_BORDER_COLOR);
+        sfall_func6("draw_line", -1, right, 0, right, lastRow, TIP_BORDER_COLOR);
+        sfall_func6("draw_line", -1, right, lastRow, 0, lastRow, TIP_BORDER_COLOR);
+        sfall_func6("draw_line", -1, 0, lastRow, 0, 0, TIP_BORDER_COLOR);
+    end
+    else begin
+        sfall_func5("win_fill_color", 0, 0, width, 1, TIP_BORDER_COLOR);
+        sfall_func5("win_fill_color", 0, lastRow, width, 1, TIP_BORDER_COLOR);
+        sfall_func5("win_fill_color", 0, 0, 1, TIP_HEIGHT, TIP_BORDER_COLOR);
+        sfall_func5("win_fill_color", right, 0, 1, TIP_HEIGHT, TIP_BORDER_COLOR);
+    end
+end
+
+// ---- Hooks
+
+// Number of values already returned by the previous scripts of the running hook. get_sfall_return
+// comes with 5.0.8; before that SmartBarter ignores what the other scripts returned, as with sFall 4.
+procedure CompatHookReturnCount
+begin
+    if (sfall_func1("metarule_exist", "get_sfall_return")) then begin
+        return sfall_func0("get_sfall_return");
+    end
+    return 0;
+end
+
+procedure CompatHookReturn(variable index)
+begin
+    if (sfall_func1("metarule_exist", "get_sfall_return")) then begin
+        return sfall_func1("get_sfall_return", index);
+    end
+    return 0;
+end
+
+// Barter price hook, registered to run after the other scripts so that it sees what they returned.
+procedure CompatRegisterBarterHook
+begin
+    register_hook_proc_spec(HOOK_BARTERPRICE, BarterHook);
+end
+
+// Total weight hook: lets the filter report the weight of hidden items to the engine. Special
+// registration: the script runs after the others, so its value is the one the engine gets.
+procedure CompatRegisterWeightHook
+begin
+    register_hook_proc_spec(HOOK_TOTALWEIGHT, TotalWeightHook);
+end
+
+procedure CompatUnregisterWeightHook
+begin
+    register_hook_proc(HOOK_TOTALWEIGHT, 0);
+end

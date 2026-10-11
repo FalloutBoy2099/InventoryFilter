@@ -1,0 +1,11 @@
+InventoryFilter.dat/text/russian/game/*.msg		text working-tree-encoding=CP1251
+InventoryFilter.dat/text/czech/game/*.msg		text working-tree-encoding=CP1250
+InventoryFilter.dat/text/german/game/*.msg		text working-tree-encoding=CP1252
+InventoryFilter.dat/text/hungarian/game/*.msg		text working-tree-encoding=CP1250
+InventoryFilter.dat/text/italian/game/*.msg		text working-tree-encoding=CP1252
+InventoryFilter.dat/text/polish/game/*.msg		text working-tree-encoding=CP1250
+InventoryFilter.dat/text/portuguese/game/*.msg		text working-tree-encoding=CP1252
+InventoryFilter.dat/text/spanish/game/*.msg		text working-tree-encoding=CP1252
+InventoryFilter.dat/text/cht/game/*.msg		text working-tree-encoding=big5
+InventoryFilter.dat/text/korean/game/*.msg		text working-tree-encoding=CP949
+InventoryFilter.dat/text/swedish/game/*.msg		text working-tree-encoding=CP1252

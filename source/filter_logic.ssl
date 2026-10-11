@@ -1,0 +1,383 @@
+// Filtering logic: category flags, item classification
+// (weapons, tools, custom group), FilterInventory*, item transfer, ammo search.
+
+#include "InvenFilter.h"
+
+// ---- Category flags and item classification
+
+// Filter bit of a category button (0..8): 1, 2, 4, ... 256. 0 for an index out of range.
+procedure GetFilterFlags(variable index)
+begin
+    variable flag := 1;
+    if ((index < 0) orElse (index >= FILTER_COUNT)) then begin
+        return 0;
+    end
+    while (index > 0) do begin
+        flag := flag * 2;
+        index--;
+    end
+    return flag;
+end
+
+// Animation code of a weapon prototype (0 none, 1..4 melee/thrown, 5 pistol, 6 SMG, 7 rifle,
+// 8 big gun, 9 minigun, 10 launcher).
+procedure WeaponAnimCode(variable pid)
+begin
+    return proto_data(pid, PDATA_WEAPON_ANIM) bwand WEAPON_ANIM_MASK;
+end
+
+procedure IsHeavyWeapon(variable pid)
+begin
+    variable animCode;
+    animCode := WeaponAnimCode(pid);
+    return (animCode >= ANIM_FIRST_HEAVY) andAlso (animCode <= ANIM_LAST_HEAVY);
+end
+
+// Light weapons: pistols, SMGs and rifles, plus the melee-class weapons that can be thrown.
+procedure IsLightWeapon(variable pid)
+begin
+    variable animCode;
+    if (IsHeavyWeapon(pid)) then begin
+        return 0;
+    end
+    animCode := WeaponAnimCode(pid);
+    return ((animCode >= ANIM_FIRST_FIREARM) andAlso (animCode <= ANIM_LAST_LIGHT)) orElse ((animCode <= ANIM_LAST_MELEE) andAlso (get_proto_data(pid, PROTO_WEAPON_RANGE) > THROWN_MIN_RANGE));
+end
+
+// The tool and custom groups are lists of PIDs: the built-in ones, then those of the INI file.
+procedure IsToolGroup(variable pid)
+begin
+    return scan_array(toolGroupPids, pid) != -1;
+end
+
+procedure IsCustomGroup(variable pid)
+begin
+    return scan_array(customGroupPids, pid) != -1;
+end
+
+// 1 if an item (prototype pid, item subtype) belongs to one of the categories in flags. Containers
+// count as tools and keys as custom items; the Misc category is everything left over.
+procedure ItemMatchesFlags(variable pid, variable subtype, variable flags)
+begin
+    variable isTool;
+    variable isCustom;
+    if (subtype == ITEM_WEAPON) then begin
+        if (IsHeavyWeapon(pid)) then begin
+            return (flags bwand FLAG_HEAVY_WEAPON) != 0;
+        end
+        if (IsLightWeapon(pid)) then begin
+            return (flags bwand FLAG_LIGHT_WEAPON) != 0;
+        end
+        return (flags bwand FLAG_MELEE) != 0;
+    end
+    if (subtype == ITEM_AMMO) then begin
+        return ((flags bwand FLAG_AMMO) != 0) orElse (((flags bwand FLAG_AMMO_SEARCH) != 0) andAlso AmmoMatchesSearch(pid));
+    end
+    if (subtype == ITEM_ARMOR) then begin
+        return (flags bwand FLAG_ARMOR) != 0;
+    end
+    if (subtype == ITEM_DRUG) then begin
+        return (flags bwand FLAG_DRUG) != 0;
+    end
+    if ((subtype >= ITEM_MISC) orElse (subtype == ITEM_CONTAINER)) then begin
+        isTool := IsToolGroup(pid) orElse (subtype == ITEM_CONTAINER);
+        isCustom := IsCustomGroup(pid) orElse (subtype == ITEM_KEY);
+        if (((flags bwand FLAG_TOOL) != 0) andAlso isTool) then begin
+            return 1;
+        end
+        if (subtype == ITEM_CONTAINER) then begin
+            return 0;
+        end
+        if (((flags bwand FLAG_CUSTOM) != 0) andAlso isCustom) then begin
+            return 1;
+        end
+        return ((flags bwand FLAG_MISC) != 0) andAlso not(isTool) andAlso not(isCustom);
+    end
+    return 0;
+end
+
+// ---- Item transfer
+
+// Moves the whole stack of one item from src to dst; caps are a currency, not an inventory item.
+procedure FilterRemoveItems(variable src, variable dst, variable item, variable pid)
+begin
+    variable count;
+    count := rm_mult_objs_from_inven(src, item, obj_is_carrying_obj(src, item));
+    if (pid == PID_BOTTLE_CAPS) then begin
+        item_caps_adjust(dst, count);
+        // The removed stack is left on the map (tile 1) and the caps of dst are a new object:
+        // without this the old one stays there, and is saved with the map.
+        destroy_object(item);
+    end
+    else begin
+        add_mult_objs_to_inven(dst, item, count);
+    end
+end
+
+// Moves every unequipped item from src to dst. Caps are moved only when withCaps is set.
+critical procedure MoveObjectInventory(variable src, variable dst, variable withCaps)
+begin
+    variable index := 0;
+    variable item;
+    variable pid;
+    item := InvenItemAt(src, index);
+    while (item) do begin
+        pid := obj_pid(item);
+        if ((withCaps orElse (pid != PID_BOTTLE_CAPS)) andAlso not(sfall_func1("get_flags", item) bwand ITEM_FLAGS_EQUIPPED)) then begin
+            call FilterRemoveItems(src, dst, item, pid);
+        end
+        else begin
+            index++;
+        end
+        item := InvenItemAt(src, index);
+    end
+end
+
+// ---- Filtering
+
+// Keeps the items of owner whose category bit is set in flags (see GetFilterFlags) and moves all
+// the others into box. Returns the total weight of the kept items. The index only advances on kept
+// items because a removal shifts the list; capped at maxItems items. Caps are filtered in the
+// inventory/loot screens only, never in barter.
+procedure FilterInventorySub(variable flags, variable owner, variable box)
+begin
+    variable index := 0;
+    variable weight := 0;
+    variable item;
+    variable pid;
+    item := InvenItemAt(owner, index);
+    while (item andAlso (index < maxItems)) do begin
+        pid := obj_pid(item);
+        // An item still worn or wielded (the barter screen is set up after the game mode hook) must
+        // not be hidden: it would come back unequipped.
+        if (sfall_func1("get_flags", item) bwand ITEM_FLAGS_EQUIPPED) then begin
+            index++;
+        end
+        else if ((pid != PID_BOTTLE_CAPS) orElse (get_game_mode bwand GM_CAPS_SCREENS)) then begin
+            if (ItemMatchesFlags(pid, obj_item_subtype(item), flags)) then begin
+                if (showWeight) then begin
+                    weight := weight + (sfall_func1("item_weight", item) * obj_is_carrying_obj(dude_obj, item));
+                end
+                index++;
+            end
+            else begin
+                call FilterRemoveItems(owner, box, item, pid);
+            end
+        end
+        else begin
+            index++;
+        end
+        item := InvenItemAt(owner, index);
+    end
+    return weight;
+end
+
+// Brings the items that match flags back from the hidden container box to owner (all of them when
+// flags is 0). The items that do not match stay hidden, so changing the filter only moves the
+// items whose state changes.
+procedure ShowMatchingItems(variable flags, variable box, variable owner)
+begin
+    variable index := 0;
+    variable item;
+    variable pid;
+    if (flags == 0) then begin
+        move_obj_inven_to_obj(box, owner);
+        return 0;
+    end
+    item := InvenItemAt(box, index);
+    while (item) do begin
+        pid := obj_pid(item);
+        if (ItemMatchesFlags(pid, obj_item_subtype(item), flags)) then begin
+            call FilterRemoveItems(box, owner, item, pid);
+        end
+        else begin
+            index++;
+        end
+        item := InvenItemAt(box, index);
+    end
+end
+
+// Gathers the caps of an inventory into one stack at the end of its list, where the caps belong.
+procedure RestackCaps(variable owner)
+begin
+    variable caps;
+    caps := obj_carrying_pid_obj(owner, PID_BOTTLE_CAPS);
+    if (caps != 0) then begin
+        call FilterRemoveItems(owner, owner, caps, PID_BOTTLE_CAPS);
+    end
+end
+
+// Applies the player's filter (SS_FLAGS of the player side): items that do not match are moved into
+// the hidden container; the items hidden by the previous selection come back only if they match
+// the new one. In barter/loot screens the
+// player's carry capacity is lowered by the hidden weight so the overload check stays correct;
+// in the plain inventory screen the weight overlay is refreshed instead. The item order is then
+// rebuilt by ApplyInventoryOrder: the active sort, or the original order once filters are released.
+procedure FilterInventory
+begin
+    variable flags;
+    variable box;
+    variable keptWeight := 0;
+    variable hiddenWeight := 0;
+    variable overlayMode := 0;
+    flags := SideGet(SIDE_PLAYER, SS_FLAGS);
+    Trace("FilterInventory flags=" + flags + " sort=" + SideGet(SIDE_PLAYER, SS_SORT))
+    if (flags == 0) then begin
+        pcFilterIsActive := 0;
+        overlayMode := -1;
+    end
+    else begin
+        pcFilterIsActive := 1;
+        call SaveOriginalOrder(SIDE_PLAYER);
+    end
+    filterDone := 0;
+    searchCaliber := 0;
+    if (flags bwand FLAG_AMMO_SEARCH) then begin
+        searchCaliber := GetHandWeaponCaliber(SideGet(SIDE_PLAYER, SS_SEARCH_SLOT));
+    end
+    box := SideGet(SIDE_PLAYER, SS_TEMP_BOX);
+    if (box == 0) then begin
+        box := create_object_sid(PID_TEMP_BOX, 1, 0, 0);
+        SideSet(SIDE_PLAYER, SS_TEMP_BOX, box);
+    end
+    else begin
+        call ShowMatchingItems(flags, box, dude_obj);
+    end
+    if (flags != 0) then begin
+        keptWeight := FilterInventorySub(flags, dude_obj, box);
+    end
+    if (((flags == 0) orElse (flags bwand FLAG_MISC)) andAlso not(get_game_mode bwand GM_INTFACELOOT)) then begin
+        call RestackCaps(dude_obj);
+    end
+    if (pcInBarter orElse lootFilter) then begin
+        if (swapMaxWeight == -1) then begin
+            call GetAndSaveDudeWeight();
+        end
+        hiddenWeight := ObjWeight(box);
+        set_pc_base_stat(STAT_CARRY_WEIGHT, dudeWeightBonus);
+        if (swapPtr andAlso (swapPtr != dude_obj)) then begin
+            hiddenWeight := hiddenWeight + ObjWeight(swapPtr);
+            set_pc_extra_stat(STAT_CARRY_WEIGHT, CarryWeight(swapPtr) - hiddenWeight + dudeEquipItemsWeight);
+        end
+        else begin
+            set_pc_extra_stat(STAT_CARRY_WEIGHT, swapMaxWeight - hiddenWeight);
+        end
+    end
+    else begin
+        if (get_game_mode bwand GM_INVENTORY) then begin
+            if (showWeight) then begin
+                call WeightWin(keptWeight, overlayMode);
+            end
+            sfall_func0("display_stats");
+        end
+    end
+    call ApplyInventoryOrder(SIDE_PLAYER, 1);
+    filterDone := 1;
+end
+
+// Same as FilterInventory for the right-hand side (NPC, container or party member). When looting,
+// the loot object's items are first moved into the dummy dialogCritter, filtered into the hidden
+// container, and the visible ones moved back. The target's capacity (container size or critter
+// carry weight) is then reduced by the hidden amount. The item order is rebuilt by
+// ApplyInventoryOrder, as in FilterInventory. The ammo search does not exist on this side.
+procedure FilterInventoryRight
+begin
+    variable flags;
+    variable box;
+    Trace("FIR enter")
+    flags := SideGet(SIDE_OTHER, SS_FLAGS);
+    if (flags != 0) then begin
+        call SaveOriginalOrder(SIDE_OTHER);
+    end
+    filterDone := 0;
+    Trace("FIR start flags=" + flags + " loot=" + sfall_func1("get_current_inven_size", lootObject) + " box=" + sfall_func1("get_current_inven_size", SideGet(SIDE_OTHER, SS_TEMP_BOX)))
+    if (lootFilter) then begin
+        if (dialogCritter == 0) then begin
+            dialogCritter := create_object_sid(PID_TEMP_BOX, 1, 0, 0);
+        end
+        move_obj_inven_to_obj(lootObject, dialogCritter);
+    end
+    box := SideGet(SIDE_OTHER, SS_TEMP_BOX);
+    if (box == 0) then begin
+        box := create_object_sid(PID_TEMP_BOX, 1, 0, 0);
+        SideSet(SIDE_OTHER, SS_TEMP_BOX, box);
+    end
+    else begin
+        call ShowMatchingItems(flags, box, dialogCritter);
+    end
+    searchCaliber := 0;
+    if (flags != 0) then begin
+        call FilterInventorySub(flags, dialogCritter, box);
+    end
+    if ((get_game_mode bwand GM_DIALOG) andAlso ((flags == 0) orElse (flags bwand FLAG_MISC))) then begin
+        call RestackCaps(dialogCritter);
+    end
+    if (lootFilter) then begin
+        Trace("FIR before back dc=" + sfall_func1("get_current_inven_size", dialogCritter) + " box=" + sfall_func1("get_current_inven_size", box))
+        move_obj_inven_to_obj(dialogCritter, lootObject);
+        Trace("FIR back loot=" + sfall_func1("get_current_inven_size", lootObject))
+        filterDone := 1;
+        if (lootIsContainer) then begin
+            set_proto_data(obj_pid(lootObject), PROTO_CONTAINER_SIZE, containerMaxSize - sfall_func1("get_current_inven_size", box));
+        end
+        else begin
+            if (npcExtraWeightStat == -1) then begin
+                npcExtraWeightStat := get_critter_extra_stat(lootObject, STAT_CARRY_WEIGHT);
+                npcMaxWeight := CarryWeight(lootObject);
+            end
+            set_critter_extra_stat(lootObject, STAT_CARRY_WEIGHT, npcExtraWeightStat - ObjWeight(box));
+        end
+    end
+    else begin
+        if (isPartyBarter) then begin
+            if (partyExtraWeightStat == -1) then begin
+                partyExtraWeightStat := get_critter_extra_stat(dialogCritter, STAT_CARRY_WEIGHT);
+            end
+            set_critter_extra_stat(dialogCritter, STAT_CARRY_WEIGHT, partyExtraWeightStat - ObjWeight(box));
+        end
+    end
+    call ApplyInventoryOrder(SIDE_OTHER, 1);
+    Trace("FIR end loot=" + sfall_func1("get_current_inven_size", GetInventoryOwner(SIDE_OTHER)))
+    filterDone := 1;
+end
+
+// Filters the inventory shown on one side.
+procedure ApplyFilter(variable side)
+begin
+    if (side == SIDE_OTHER) then begin
+        call FilterInventoryRight();
+    end
+    else begin
+        call FilterInventory();
+    end
+end
+
+// ---- Ammo search
+
+// Caliber of the ammunition used by the weapon in a hand slot of the player (1 = ITEM1, the left
+// slot, i.e. the left hand; 2 = ITEM2, the right slot), 0 if the slot is empty or holds something
+// that uses no ammunition.
+procedure GetHandWeaponCaliber(variable slot)
+begin
+    variable weapon;
+    if (slot == 1) then begin
+        weapon := sfall_func2("critter_inven_obj2", dude_obj, SLOT_LEFT_HAND);
+    end
+    else begin
+        weapon := sfall_func2("critter_inven_obj2", dude_obj, SLOT_RIGHT_HAND);
+    end
+    Trace("GetHandWeaponCaliber slot=" + slot + " weapon=" + weapon)
+    if (weapon == 0) then begin
+        return 0;
+    end
+    if (obj_item_subtype(weapon) != ITEM_WEAPON) then begin
+        return 0;
+    end
+    return get_proto_data(obj_pid(weapon), PROTO_WEAPON_CALIBER);
+end
+
+// 1 if the ammunition of this pid fits the weapon of the current ammo search (searchCaliber).
+procedure AmmoMatchesSearch(variable pid)
+begin
+    return (searchCaliber != 0) andAlso (get_proto_data(pid, PROTO_AMMO_CALIBER) == searchCaliber);
+end
