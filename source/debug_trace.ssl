@@ -14,3 +14,19 @@ begin
     sfall_func2("set_ini_setting", TRACE_FILE + "n", traceCount);
     sfall_func2("set_ini_setting", TRACE_FILE + "e" + traceCount, get_uptime + " " + msg);
 end
+
+// pid of an object for a trace line, "-" for none.
+procedure PidText(variable obj)
+begin
+    if (obj == 0) then begin
+        return "-";
+    end
+    return "" + obj_pid(obj);
+end
+
+// What the player has in the armor and hand slots, as the script sees it (the inventory screen keeps
+// its own copy of the slots until it closes), for the traces of the swap.
+procedure EquipText
+begin
+    return "armor=" + PidText(critter_inven_obj(dude_obj, SLOT_ARMOR)) + " left=" + PidText(sfall_func2("critter_inven_obj2", dude_obj, SLOT_LEFT_HAND)) + " right=" + PidText(sfall_func2("critter_inven_obj2", dude_obj, SLOT_RIGHT_HAND));
+end

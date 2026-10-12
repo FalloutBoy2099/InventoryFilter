@@ -181,45 +181,55 @@ begin
     call EndInit();
 end
 
+// Integer value of an INI key, or def when the key is not there (the INI of an older version, a line
+// deleted): get_ini_setting alone would give -1, which reads as "on" and as a shift of one pixel.
+procedure IniInt(variable key, variable def)
+begin
+    if (IniGetString(key) == "") then begin
+        return def;
+    end
+    return IniGet(key);
+end
+
 // Reads the settings of InvenFilter.ini.
 procedure LoadSettings
 begin
     variable colorIndex;
-    barterOutsideInterface := IniGet("OldPosition") == 0;
-    showWeight := IniGet("ShowWeight");
-    showCaps := IniGet("ShowCaps");
-    smartBarter := IniGet("SmartBarter");
+    barterOutsideInterface := IniInt("OldPosition", 0) == 0;
+    showWeight := IniInt("ShowWeight", 1);
+    showCaps := IniInt("ShowCaps", 1);
+    smartBarter := IniInt("SmartBarter", 0);
     if (showWeight) then begin
-        showPercentSize := IniGet("PercentSize");
+        showPercentSize := IniInt("PercentSize", 1);
     end
-    dropKeyCode := IniGet("DropAllButtonKey");
+    dropKeyCode := IniInt("DropAllButtonKey", 32);
     if (dropKeyCode < 0) then begin
         dropKeyCode := 0;
     end
-    dropAllButton := IniGet("DropAllButton");
-    giveAllImage := IniGet("UseGiveAllImage");
-    useBackImage := IniGet("UseBackImage");
-    iconOnlyButtons := IniGet("IconOnlyButtons");
+    dropAllButton := IniInt("DropAllButton", 1);
+    giveAllImage := IniInt("UseGiveAllImage", 1);
+    useBackImage := IniInt("UseBackImage", 1);
+    iconOnlyButtons := IniInt("IconOnlyButtons", 0);
     if (iconOnlyButtons < 0) then begin
         iconOnlyButtons := 0;
     end
     keepOtherFilters := create_array(TARGET_TYPES, 0);
     savedOtherFlags := create_array(TARGET_TYPES, 0);
-    set_array(keepOtherFilters, TARGET_LOOT, IniGet("KeepLootFilters") > 0);
-    set_array(keepOtherFilters, TARGET_COMPANION, IniGet("KeepCompanionFilters") > 0);
-    set_array(keepOtherFilters, TARGET_MERCHANT, IniGet("KeepMerchantFilters") > 0);
-    keepFilters := IniGet("KeepFilters");
+    set_array(keepOtherFilters, TARGET_LOOT, IniInt("KeepLootFilters", 0) > 0);
+    set_array(keepOtherFilters, TARGET_COMPANION, IniInt("KeepCompanionFilters", 0) > 0);
+    set_array(keepOtherFilters, TARGET_MERCHANT, IniInt("KeepMerchantFilters", 0) > 0);
+    keepFilters := IniInt("KeepFilters", 1);
     if (keepFilters < 0) then begin
         keepFilters := 0;
     end
-    maxItems := IniGet("MaxItems");
+    maxItems := IniInt("MaxItems", DEFAULT_MAX_ITEMS);
     if (maxItems < 1) then begin
         maxItems := DEFAULT_MAX_ITEMS;
     end
     if (maxItems > MAX_ITEMS_LIMIT) then begin
         maxItems := MAX_ITEMS_LIMIT;
     end
-    colorIndex := IniGet("TextColor");
+    colorIndex := IniInt("TextColor", 2);
     if (colorIndex == 1) then begin
         textRed := 0.80000;
         textGreen := 0.80000;
@@ -232,20 +242,20 @@ begin
             textBlue := 0.90000;
         end
     end
-    enableState := IniGet("Enable");
+    enableState := IniInt("Enable", 1);
     if (enableState == -1) then begin
         enableState := 1;
     end
     if (get_screen_height > BARTER_DIALOG_H) then begin
-        swapEnabled := IniGet("SwapParty");
+        swapEnabled := IniInt("SwapParty", 1);
         if (swapEnabled) then begin
-            swapAllContainers := IniGet("SwapContainers");
-            swapMaxDistance := IniGet("SwapMaxDistance");
-            swapLootOffset := IniGet("SwapLootOffset");
-            swapBarterOffset := IniGet("SwapBarterOffset");
+            swapAllContainers := IniInt("SwapContainers", 1);
+            swapMaxDistance := IniInt("SwapMaxDistance", 0);
+            swapLootOffset := IniInt("SwapLootOffset", 0);
+            swapBarterOffset := IniInt("SwapBarterOffset", 0);
         end
     end
-    weightWinYShift := weightWinYShift + IniGet("WeightWinShift");
+    weightWinYShift := weightWinYShift + IniInt("WeightWinShift", 0);
 end
 
 // Appends the PIDs of a comma separated list to a PID array; empty entries are skipped.

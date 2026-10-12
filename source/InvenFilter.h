@@ -11,6 +11,7 @@ procedure LocaleFolder(variable lang);
 procedure ChooseButtonPictures(variable lang);
 procedure EndInit;
 procedure InitMod;
+procedure IniInt(variable key, variable def);
 procedure LoadSettings;
 procedure AppendPids(variable list, variable text);
 procedure BuildTables;

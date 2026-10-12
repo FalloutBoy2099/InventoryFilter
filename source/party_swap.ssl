@@ -292,6 +292,7 @@ begin
         dudeEquipItemsWeight := ObjWeight(dude_obj);
     end
     debug_msg("Filter: Swapping with " + obj_name(member));
+    Trace("swap with " + obj_pid(member) + " equip " + EquipText())
     if (swapPtr != 0) then begin
         if ((swapPtr == dude_obj) andAlso (member != dude_obj)) then begin
             call MoveObjectInventory(dude_obj, swapContainer, moveAll);

@@ -353,6 +353,7 @@ end
 // screens draw theirs by other means).
 procedure MoveItemPCHook
 begin
+    Trace("hook24 type=" + get_sfall_arg + " item=" + PidText(sfall_func1("get_sfall_arg_at", 1)) + " other=" + PidText(sfall_func1("get_sfall_arg_at", 2)) + " mode=" + get_game_mode)
     if (SideGet(SIDE_PLAYER, SS_FLAGS) orElse SideGet(SIDE_OTHER, SS_FLAGS)) then begin
         call ScheduleRefilter();
     end
