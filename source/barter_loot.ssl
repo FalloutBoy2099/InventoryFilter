@@ -272,7 +272,6 @@ procedure PrintText(variable text, variable x, variable y, variable winType)
 begin
     variable textX;
     textX := (OVERLAY_TEXT_W / 2) + x - (sfall_func1("get_text_width", text) / 2);
-    Trace("PrintText win=" + winType + " ovl=" + overlayId + " x=" + x + " y=" + y + " text=" + text)
     call CompatPrintText(winType, text, x, y, textX);
 end
 
@@ -519,7 +518,7 @@ begin
                 total := total + sfall_func1("item_weight", item);
             end
             else begin
-                total := total + proto_data(obj_pid(item), PDATA_ITEM_WEIGHT);
+                total := total + proto_data(obj_pid(item), PDATA_ITEM_SIZE);
             end
         end
         slot++;
@@ -527,10 +526,69 @@ begin
     return total;
 end
 
+// 1 if Drop All must leave this item alone: its pid is in DropAllProtectedPids, or it belongs to a
+// category of DropAllProtectedCategories.
+procedure DropProtected(variable item, variable pid)
+begin
+    if (scan_array(dropProtectedPids, pid) != -1) then begin
+        return 1;
+    end
+    if (dropProtectedFlags) then begin
+        return ItemMatchesFlags(pid, obj_item_subtype(item), dropProtectedFlags);
+    end
+    return 0;
+end
+
+// Weight (byWeight = 1) or size of the player's unequipped items that Drop All leaves alone (caps
+// are never moved by it, so they are not counted).
+procedure ProtectedAmount(variable byWeight)
+begin
+    variable index := 0;
+    variable item;
+    variable pid;
+    variable count;
+    variable total := 0;
+    item := InvenItemAt(dude_obj, index);
+    while (item) do begin
+        pid := obj_pid(item);
+        if ((pid != PID_BOTTLE_CAPS) andAlso not(sfall_func1("get_flags", item) bwand ITEM_FLAGS_EQUIPPED) andAlso DropProtected(item, pid)) then begin
+            count := obj_is_carrying_obj(dude_obj, item);
+            if (byWeight) then begin
+                total := total + (sfall_func1("item_weight", item) * count);
+            end
+            else begin
+                total := total + (proto_data(pid, PDATA_ITEM_SIZE) * count);
+            end
+        end
+        index++;
+        item := InvenItemAt(dude_obj, index);
+    end
+    return total;
+end
+
+// Moves the player's unequipped items to dst, except the caps and the protected ones.
+critical procedure MoveDroppable(variable dst)
+begin
+    variable index := 0;
+    variable item;
+    variable pid;
+    item := InvenItemAt(dude_obj, index);
+    while (item) do begin
+        pid := obj_pid(item);
+        if ((pid != PID_BOTTLE_CAPS) andAlso not(sfall_func1("get_flags", item) bwand ITEM_FLAGS_EQUIPPED) andAlso (DropProtected(item, pid) == 0)) then begin
+            call FilterRemoveItems(dude_obj, dst, item, pid);
+        end
+        else begin
+            index++;
+        end
+        item := InvenItemAt(dude_obj, index);
+    end
+end
+
 // Drop All key/button: moves all the player's unequipped items to the loot target, but only when
-// they fit in its remaining capacity (weight for critters, size for containers; equipped items are
-// subtracted since they stay; caps are kept). Otherwise shows an engine message. Runs once per
-// press (dropPress: 0 idle, 1 pressed, 2 done).
+// they fit in its remaining capacity (weight for critters, size for containers; equipped items and
+// the protected ones are subtracted since they stay; caps are kept). Otherwise shows an engine
+// message. Runs once per press (dropPress: 0 idle, 1 pressed, 2 done).
 critical procedure KeyDropPress
 begin
     variable target;
@@ -564,12 +622,12 @@ begin
         inTarget := sfall_func1("get_current_inven_size", target);
         capacity := get_proto_data(obj_pid(target), PROTO_CONTAINER_SIZE);
     end
-    carried := carried - CheckDudeEquipItems(byWeight);
+    carried := carried - CheckDudeEquipItems(byWeight) - ProtectedAmount(byWeight);
     if (carried > (capacity - inTarget)) then begin
         create_message_window(message_str_game(GAME_MSG_INVENTRY, GMSG_TOO_HEAVY));
         return 0;
     end
-    call MoveObjectInventory(dude_obj, target, 0);
+    call MoveDroppable(target);
     sfall_func0("inventory_redraw");
     // What was dropped into the target must go through its filter.
     call ScheduleRefilter();

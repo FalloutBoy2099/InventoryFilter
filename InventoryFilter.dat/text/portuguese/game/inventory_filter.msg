@@ -1,10 +1,10 @@
-# InventoryFilterMk2 messages (portuguese)
+# InventoryFilter messages (portuguese)
 
 {100}{}{Diferença acertada automaticamente: %d de dinheiro.}
 {101}{}{Feche o recipiente antes de usar esta função.}
 
-{102}{}{InventoryFilterMk2: requer a versão mais recente do sfall.}
-{103}{}{InventoryFilterMk2: requer uma largura de tela de pelo menos 740 pixels.}
+{102}{}{InventoryFilter: requer a versão mais recente do sfall.}
+{103}{}{InventoryFilter: requer uma largura de tela de pelo menos 740 pixels.}
 
 {104}{}{O filtro está desativado. Pressione F11 para ativá-lo.}
 {105}{}{Filtro ativado.}
@@ -29,5 +29,5 @@
 {122}{}{Ordenar por peso}
 {123}{}{Munição: esquerdo = arma 1, do meio = arma 2, direito = cancelar}
 {124}{}{Nenhuma arma que use munição nas mãos.}
-{126}{}{InventoryFilterMk2: erro interno, o filtro pode estar incompleto.}
-{127}{}{InventoryFilterMk2: esta versão é para o sFall 4, use a versão para o sFall 5.}
+{126}{}{InventoryFilter: erro interno, o filtro pode estar incompleto.}
+{127}{}{InventoryFilter: esta versão é para o sFall 4, use a versão para o sFall 5.}

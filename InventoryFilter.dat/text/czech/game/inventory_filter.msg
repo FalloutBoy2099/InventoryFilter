@@ -1,10 +1,10 @@
-# InventoryFilterMk2 messages (czech)
+# InventoryFilter messages (czech)
 
 {100}{}{Rozdíl byl automaticky vyrovnán: %d peněz.}
 {101}{}{Před použitím zavřete kontejner.}
 
-{102}{}{InventoryFilterMk2: vyžaduje nejnovější verzi sfall.}
-{103}{}{InventoryFilterMk2: vyžaduje šířku obrazovky alespoň 740 pixelů.}
+{102}{}{InventoryFilter: vyžaduje nejnovější verzi sfall.}
+{103}{}{InventoryFilter: vyžaduje šířku obrazovky alespoň 740 pixelů.}
 
 {104}{}{Filtr je vypnutý. Zapnete jej klávesou F11.}
 {105}{}{Filtr zapnut.}
@@ -29,5 +29,5 @@
 {122}{}{Řadit podle váhy}
 {123}{}{Střelivo: levé = zbraň 1, prostřední = zbraň 2, pravé = vypnout}
 {124}{}{V rukou není žádná zbraň na střelivo.}
-{126}{}{InventoryFilterMk2: vnitřní chyba, filtr může být neúplný.}
-{127}{}{InventoryFilterMk2: toto sestavení je pro sFall 4, použijte sestavení pro sFall 5.}
+{126}{}{InventoryFilter: vnitřní chyba, filtr může být neúplný.}
+{127}{}{InventoryFilter: toto sestavení je pro sFall 4, použijte sestavení pro sFall 5.}

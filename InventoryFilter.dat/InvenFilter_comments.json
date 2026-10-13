@@ -532,6 +532,114 @@
         "32 - 'D' key scancode"
       ]
     },
+    "DropAllProtectedCategories": {
+      "english": [
+        "Filter categories whose items \"Drop All\" never moves, separated by commas.",
+        "Names: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. The custom category holds the keys and the items of CustomGroupPids.",
+        "Empty: nothing is protected."
+      ],
+      "french": [
+        "Catégories de filtre dont les objets ne sont jamais déplacés par « Tout déposer », séparées par des virgules.",
+        "Noms : melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. La catégorie custom contient les clés et les objets de CustomGroupPids.",
+        "Vide : rien n'est protégé."
+      ],
+      "russian": [
+        "Категории фильтра, предметы которых кнопка \"Положить все\" никогда не переносит; через запятую.",
+        "Названия: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. Категория custom содержит ключи и предметы из CustomGroupPids.",
+        "Пусто: ничто не защищено."
+      ],
+      "czech": [
+        "Kategorie filtru, jejichž předměty tlačítko „Položit vše“ nikdy nepřesouvá, oddělené čárkami.",
+        "Názvy: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. Kategorie custom obsahuje klíče a předměty z CustomGroupPids.",
+        "Prázdné: nic není chráněno."
+      ],
+      "german": [
+        "Filterkategorien, deren Gegenstände „Alles ablegen“ nie verschiebt, durch Kommas getrennt.",
+        "Namen: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. Die Kategorie custom enthält die Schlüssel und die Gegenstände aus CustomGroupPids.",
+        "Leer: nichts ist geschützt."
+      ],
+      "hungarian": [
+        "Azok a szűrőkategóriák, amelyek tárgyait a „Mindent lerak” gomb soha nem mozgatja, vesszővel elválasztva.",
+        "Nevek: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. A custom kategória a kulcsokat és a CustomGroupPids tárgyait tartalmazza.",
+        "Üres: semmi sincs védve."
+      ],
+      "italian": [
+        "Categorie di filtro i cui oggetti «Deponi tutto» non sposta mai, separate da virgole.",
+        "Nomi: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. La categoria custom contiene le chiavi e gli oggetti di CustomGroupPids.",
+        "Vuoto: nulla è protetto."
+      ],
+      "polish": [
+        "Kategorie filtra, których przedmiotów przycisk „Połóż wszystko” nigdy nie przenosi, oddzielone przecinkami.",
+        "Nazwy: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. Kategoria custom zawiera klucze i przedmioty z CustomGroupPids.",
+        "Puste: nic nie jest chronione."
+      ],
+      "portuguese": [
+        "Categorias de filtro cujos itens «Soltar tudo» nunca move, separadas por vírgulas.",
+        "Nomes: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. A categoria custom contém as chaves e os itens de CustomGroupPids.",
+        "Vazio: nada é protegido."
+      ],
+      "spanish": [
+        "Categorías de filtro cuyos objetos «Soltar todo» nunca mueve, separadas por comas.",
+        "Nombres: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. La categoría custom contiene las llaves y los objetos de CustomGroupPids.",
+        "Vacío: nada está protegido."
+      ],
+      "cht": [
+        "「全部放下」永遠不會移動其物品的過濾類別，以逗號分隔。",
+        "名稱：melee、wlight、weapon、ammo、armor、drug、tool、custom、misc。custom 類別包含鑰匙以及 CustomGroupPids 中的物品。",
+        "留空：不保護任何物品。"
+      ],
+      "korean": [
+        "'모두 내려놓기'가 아이템을 절대 옮기지 않는 필터 분류를 쉼표로 구분해 적습니다.",
+        "이름: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. custom 분류에는 열쇠와 CustomGroupPids의 아이템이 들어 있습니다.",
+        "비워 두면 보호되는 아이템이 없습니다."
+      ],
+      "swedish": [
+        "Filterkategorier vars föremål ”Lägg allt” aldrig flyttar, åtskilda med kommatecken.",
+        "Namn: melee, wlight, weapon, ammo, armor, drug, tool, custom, misc. Kategorin custom innehåller nycklarna och föremålen i CustomGroupPids.",
+        "Tomt: inget skyddas."
+      ]
+    },
+    "DropAllProtectedPids": {
+      "english": [
+        "List of pid numbers of items that \"Drop All\" never moves (quest items, for example)."
+      ],
+      "french": [
+        "Liste de numéros de PID des objets que « Tout déposer » ne déplace jamais (objets de quête, par exemple)."
+      ],
+      "russian": [
+        "Список номеров PID предметов, которые \"Положить все\" никогда не переносит (например, квестовые предметы)."
+      ],
+      "czech": [
+        "Seznam čísel PID předmětů, které „Položit vše“ nikdy nepřesouvá (například úkolové předměty)."
+      ],
+      "german": [
+        "Liste der PIDs von Gegenständen, die „Alles ablegen“ nie verschiebt (zum Beispiel Questgegenstände)."
+      ],
+      "hungarian": [
+        "Azon tárgyak PID-számainak listája, amelyeket a „Mindent lerak” soha nem mozgat (például küldetéstárgyak)."
+      ],
+      "italian": [
+        "Elenco dei PID degli oggetti che «Deponi tutto» non sposta mai (per esempio gli oggetti di missione)."
+      ],
+      "polish": [
+        "Lista numerów PID przedmiotów, których „Połóż wszystko” nigdy nie przenosi (na przykład przedmioty questowe)."
+      ],
+      "portuguese": [
+        "Lista de números PID de itens que «Soltar tudo» nunca move (por exemplo, itens de missão)."
+      ],
+      "spanish": [
+        "Lista de números PID de objetos que «Soltar todo» nunca mueve (por ejemplo, objetos de misión)."
+      ],
+      "cht": [
+        "「全部放下」永遠不會移動的物品 PID 清單（例如任務物品）。"
+      ],
+      "korean": [
+        "'모두 내려놓기'가 절대 옮기지 않는 아이템의 PID 목록입니다(예: 퀘스트 아이템)."
+      ],
+      "swedish": [
+        "Lista över PID-nummer för föremål som ”Lägg allt” aldrig flyttar (till exempel uppdragsföremål)."
+      ]
+    },
     "UseBackImage": {
       "english": [
         "Use the additional background image for the \"Drop All\" button.",

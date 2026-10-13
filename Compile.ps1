@@ -3,7 +3,8 @@ param(
     [string] $Target = 'all',
     [switch] $Clean,
     [switch] $NoPackage,
-    [switch] $Trace
+    [switch] $Trace,
+    [switch] $NoCheck
 )
 
 Set-StrictMode -Version Latest
@@ -25,8 +26,11 @@ if ($Target -eq 'all') {
         }
     }
     foreach ($one in @('sfall5', 'sfall4')) {
-        & $PSCommandPath -Target $one -NoPackage:$NoPackage -Trace:$Trace
+        & $PSCommandPath -Target $one -NoPackage:$NoPackage -Trace:$Trace -NoCheck
         if (-not $?) { throw "Build failed for $one" }
+    }
+    if ((-not $NoPackage) -and (-not $NoCheck) -and (-not $Trace)) {
+        & (Join-Path $Root 'Check.ps1') -Root $Root
     }
     return
 }
@@ -179,5 +183,9 @@ finally {
     $archive.Dispose()
 }
 Write-Host "Created $zipFile" -ForegroundColor Green
+
+if ((-not $NoCheck) -and (-not $Trace)) {
+    & (Join-Path $Root 'Check.ps1') -Root $Root
+}
 
 Write-Step 'Done'

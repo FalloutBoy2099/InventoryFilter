@@ -423,14 +423,12 @@ end
 
 critical procedure ButtonHOn
 begin
-    Trace("HoverOn")
     hoverButton := 1;
     call HoverEnter();
 end
 
 critical procedure ButtonHOff
 begin
-    Trace("HoverOff")
     hoverButton := 0;
     call HoverLeave();
 end

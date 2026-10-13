@@ -105,7 +105,7 @@
 #define PROTO_CONTAINER_SIZE    36
 #define PDATA_WEAPON_ANIM       7     // proto_data(pid, ...): weapon animation code (low nibble)
 #define PDATA_CRITTER_TYPE      11    // non-zero for a critter that cannot hold a bag of items (kept from the original script)
-#define PDATA_ITEM_WEIGHT       12
+#define PDATA_ITEM_SIZE         12    // proto_data(pid, ...): size of the item in a container
 #define PDATA_ITEM_COST         14
 #define WEAPON_ANIM_MASK        0x0000000F
 // Weapon animation codes: 1..4 melee/thrown, 5 pistol, 6 SMG, 7 rifle, 8 big gun, 9 minigun, 10 launcher.

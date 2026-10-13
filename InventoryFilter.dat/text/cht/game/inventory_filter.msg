@@ -1,10 +1,10 @@
-# InventoryFilterMk2 messages (cht)
+# InventoryFilter messages (cht)
 
 {100}{}{已自動結清差額：%d 瓶蓋。}
 {101}{}{使用前請先關閉容器。}
 
-{102}{}{InventoryFilterMk2：需要最新版本的 sfall。}
-{103}{}{InventoryFilterMk2：螢幕寬度至少需要 740 像素。}
+{102}{}{InventoryFilter：需要最新版本的 sfall。}
+{103}{}{InventoryFilter：螢幕寬度至少需要 740 像素。}
 
 {104}{}{過濾功能已停用，按 F11 啟用。}
 {105}{}{過濾功能已啟用。}
@@ -29,5 +29,5 @@
 {122}{}{依重量排序}
 {123}{}{搜尋彈藥：左鍵 = 武器1，中鍵 = 武器2，右鍵 = 關閉}
 {124}{}{手上沒有使用彈藥的武器。}
-{126}{}{InventoryFilterMk2：內部錯誤，過濾功能可能不完整。}
-{127}{}{InventoryFilterMk2：此版本適用於 sFall 4，請改用 sFall 5 版本。}
+{126}{}{InventoryFilter：內部錯誤，過濾功能可能不完整。}
+{127}{}{InventoryFilter：此版本適用於 sFall 4，請改用 sFall 5 版本。}

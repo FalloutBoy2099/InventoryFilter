@@ -1,10 +1,10 @@
-# InventoryFilterMk2 messages (hungarian)
+# InventoryFilter messages (hungarian)
 
 {100}{}{A különbség automatikusan kiegyenlítve: %d pénz.}
 {101}{}{Használat előtt zárd be a konténert.}
 
-{102}{}{InventoryFilterMk2: a sfall legújabb verziója szükséges.}
-{103}{}{InventoryFilterMk2: legalább 740 pixel képernyőszélesség szükséges.}
+{102}{}{InventoryFilter: a sfall legújabb verziója szükséges.}
+{103}{}{InventoryFilter: legalább 740 pixel képernyőszélesség szükséges.}
 
 {104}{}{A szűrő ki van kapcsolva. Bekapcsolásához nyomd meg az F11-et.}
 {105}{}{Szűrő bekapcsolva.}
@@ -29,5 +29,5 @@
 {122}{}{Rendezés súly szerint}
 {123}{}{Lőszer: bal = 1. fegyver, közép = 2. fegyver, jobb = ki}
 {124}{}{Nincs lőszert használó fegyver a kézben.}
-{126}{}{InventoryFilterMk2: belső hiba, a szűrő hiányos lehet.}
-{127}{}{InventoryFilterMk2: ez a kiadás sFall 4-hez készült, használja a sFall 5 kiadást.}
+{126}{}{InventoryFilter: belső hiba, a szűrő hiányos lehet.}
+{127}{}{InventoryFilter: ez a kiadás sFall 4-hez készült, használja a sFall 5 kiadást.}

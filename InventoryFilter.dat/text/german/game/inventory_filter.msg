@@ -1,10 +1,10 @@
-# InventoryFilterMk2 messages (german)
+# InventoryFilter messages (german)
 
 {100}{}{Differenz automatisch ausgeglichen: %d Geld.}
 {101}{}{Schließe den Container, bevor du diese Funktion benutzt.}
 
-{102}{}{InventoryFilterMk2: Benötigt die neueste Version von sfall.}
-{103}{}{InventoryFilterMk2: Benötigt eine Bildschirmbreite von mindestens 740 Pixeln.}
+{102}{}{InventoryFilter: Benötigt die neueste Version von sfall.}
+{103}{}{InventoryFilter: Benötigt eine Bildschirmbreite von mindestens 740 Pixeln.}
 
 {104}{}{Der Filter ist deaktiviert. Zum Aktivieren drücke F11.}
 {105}{}{Filter aktiviert.}
@@ -29,5 +29,5 @@
 {122}{}{Nach Gewicht sortieren}
 {123}{}{Munitionssuche: links = Waffe 1, Mitte = Waffe 2, rechts = aus}
 {124}{}{Keine Waffe mit Munition in den Händen.}
-{126}{}{InventoryFilterMk2: Interner Fehler, der Filter ist möglicherweise unvollständig.}
-{127}{}{InventoryFilterMk2: Dieser Build ist für sFall 4, verwenden Sie den sFall-5-Build.}
+{126}{}{InventoryFilter: Interner Fehler, der Filter ist möglicherweise unvollständig.}
+{127}{}{InventoryFilter: Dieser Build ist für sFall 4, verwenden Sie den sFall-5-Build.}

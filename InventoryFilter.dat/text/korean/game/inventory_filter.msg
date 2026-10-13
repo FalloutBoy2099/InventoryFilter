@@ -1,10 +1,10 @@
-# InventoryFilterMk2 messages (korean)
+# InventoryFilter messages (korean)
 
 {100}{}{차액이 자동으로 정산되었습니다: 병뚜껑 %d개.}
 {101}{}{사용하기 전에 컨테이너를 닫으십시오.}
 
-{102}{}{InventoryFilterMk2: 최신 버전의 sfall이 필요합니다.}
-{103}{}{InventoryFilterMk2: 화면 너비가 최소 740픽셀이어야 합니다.}
+{102}{}{InventoryFilter: 최신 버전의 sfall이 필요합니다.}
+{103}{}{InventoryFilter: 화면 너비가 최소 740픽셀이어야 합니다.}
 
 {104}{}{필터가 비활성화되었습니다. 활성화하려면 F11 키를 누르십시오.}
 {105}{}{필터가 활성화되었습니다.}
@@ -31,5 +31,5 @@
 {123}{}{탄약 검색: 왼쪽 = 무기 1, 가운데 = 무기 2, 오른쪽 = 끄기}
 {124}{}{탄약을 사용하는 무기를 들고 있지 않습니다.}
 
-{126}{}{InventoryFilterMk2: 내부 오류, 필터가 불완전할 수 있습니다.}
-{127}{}{InventoryFilterMk2: 이 빌드는 sFall 4용입니다. sFall 5용 빌드를 사용하십시오.}
+{126}{}{InventoryFilter: 내부 오류, 필터가 불완전할 수 있습니다.}
+{127}{}{InventoryFilter: 이 빌드는 sFall 4용입니다. sFall 5용 빌드를 사용하십시오.}

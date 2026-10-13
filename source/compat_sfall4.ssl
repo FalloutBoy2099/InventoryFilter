@@ -3,6 +3,20 @@
 
 #include "InvenFilter.h"
 
+// Why sFall 4 gets its own code, in short (each of these was tried the simple way first):
+// - No script buttons on the game's windows: the filter, sort and search buttons live in windows of
+//   their own, and their clicks (and the middle click) are found by the mouse position in the click
+//   hook (CompatMouseClick). A pressed look needs set_button_state, which 4.x lacks: the button is
+//   deleted and created again with other pictures.
+// - A window of our own over the game's window goes blank when the game redraws its window (Take
+//   All, for instance), and any text window falls under it. So the Drop All button is a picture drawn
+//   into the inventory window like the plate behind it (interface_art_draw), clicked by position
+//   (CompatDropAllMouse), and the weight and caps texts are drawn on the interface overlay.
+// - The overlay is one per window type, with no ids, and clearing a rectangle of it does not always
+//   remove the old text: in the plain inventory screen, where it holds one text, all of it is cleared.
+// - No total weight hook: the engine weight panel leaves out the items hidden by a filter.
+// - The barter price hook cannot read what earlier scripts returned (SmartBarter ignores it).
+
 // Minimum sFall version, as 10000 * major + 100 * minor + build. 4.2.9 is the first release that has
 // every function the mod calls (interface_overlay, win_fill_color, interface_print and
 // interface_art_draw came last; get_window_attribute 4.2.3, add_extra_msg_file 4.1.9) and the
@@ -146,7 +160,6 @@ begin
         return 0;
     end
     pressed := pressed != 0;
-    Trace("setPressed " + btn + " -> " + pressed + " (was " + get_array(compatButtonGfx, btn + "|state") + ")")
     if (get_array(compatButtonGfx, btn + "|state") == pressed) then begin
         return 0;
     end
@@ -201,7 +214,6 @@ begin
         return 0;
     end
     rel := mouseY - (menuY + FILTER_ROW_Y);
-    Trace("cmc side=" + side + " rel=" + rel + " button=" + button)
     if ((rel >= 0) andAlso (rel < (FILTER_COUNT * BTN_PITCH))) then begin
         offset := rel - ((rel / BTN_PITCH) * BTN_PITCH);
         if ((offset < (FILTER_BTN_Y - FILTER_ROW_Y)) orElse (offset > BTN_H) orElse (button == 1)) then begin

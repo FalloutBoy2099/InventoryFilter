@@ -46,6 +46,7 @@ The comments of the file can be rewritten in any of the mod's languages with `Tr
 - `ToolGroupPids`, `CustomGroupPids`: extra items of the Tools and Custom groups.
 - `ShowWeight`, `ShowCaps`, `PercentSize`, `TextColor`: weight and caps display.
 - `SmartBarter`, `DropAllButton`, `DropAllButtonKey`, `UseBackImage`, `UseGiveAllImage`, `KeepFilters`.
+- `DropAllProtectedCategories` (`custom` by default) and `DropAllProtectedPids`: what Drop All / Give All never moves, whether it is used with the button or the hotkey. The categories are those of the filter buttons (`melee`, `wlight`, `weapon`, `ammo`, `armor`, `drug`, `tool`, `custom`, `misc`, separated by commas); `custom` holds the keys and the items of `CustomGroupPids`. The pids are for single items, quest items for instance. Equipped items and caps are never moved either. The protected items are left out of the capacity check of the target.
 - `KeepFilters=1` keeps the player's filters from one screen to the next. The filters of the right inventory are kept separately by kind of target with `KeepLootFilters` (container or body), `KeepCompanionFilters` (party member, looted or bartered with) and `KeepMerchantFilters` (merchant), all 0 by default. None of them is saved in the savegame.
 - `MaxItems` (1000 by default, 9999 at most): number of items handled in one inventory by the filters, the sort and the order restoration.
 - `SwapParty`, `SwapContainers`, `SwapMaxDistance` (0 = no limit): swap with party members, and the largest distance in hexes at which a member can be swapped with. Members farther away are skipped with a message.
@@ -75,6 +76,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Compile.ps1 -NoPackage    
 
 - sFall 5: `build\compiled\scripts\gl_InvenFilter.int` and `dist\InventoryFilterSfall5.zip`; sFall 4: `build\sfall4\compiled\scripts\gl_InvenFilter.int` and `dist\InventoryFilterSfall4.zip`.
 - `-Trace` builds a variant that logs its steps to `mods\InventoryFilter.dat\InvenTrace.ini` (zips named `..._trace.zip`); delete that file before a new try. Not for normal use.
+- `Check.ps1` (run by `Compile.ps1` after a packaged build, `-NoCheck` to skip it) checks the data against the sources: every message id of the code in every `.msg` file, every INI key the code reads in `InvenFilter.ini` (and the default given in the code equal to the shipped value), every INI comment block in the dictionary in every language, and the zips of `dist` (entry names with `/`, compiled script and INI in them).
 - Compilers: `tools\sslc-sfall5` (sFall 5, GitVerse) and `tools\sslc-sfall4` (sfall-team).
 
 ## Known limits

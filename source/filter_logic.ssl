@@ -284,7 +284,6 @@ procedure FilterInventoryRight
 begin
     variable flags;
     variable box;
-    Trace("FIR enter")
     flags := SideGet(SIDE_OTHER, SS_FLAGS);
     if (flags != 0) then begin
         call SaveOriginalOrder(SIDE_OTHER);
@@ -313,9 +312,7 @@ begin
         call RestackCaps(dialogCritter);
     end
     if (lootFilter) then begin
-        Trace("FIR before back dc=" + sfall_func1("get_current_inven_size", dialogCritter) + " box=" + sfall_func1("get_current_inven_size", box))
         move_obj_inven_to_obj(dialogCritter, lootObject);
-        Trace("FIR back loot=" + sfall_func1("get_current_inven_size", lootObject))
         filterDone := 1;
         if (lootIsContainer) then begin
             set_proto_data(obj_pid(lootObject), PROTO_CONTAINER_SIZE, containerMaxSize - sfall_func1("get_current_inven_size", box));
@@ -366,7 +363,6 @@ begin
     else begin
         weapon := sfall_func2("critter_inven_obj2", dude_obj, SLOT_RIGHT_HAND);
     end
-    Trace("GetHandWeaponCaliber slot=" + slot + " weapon=" + weapon)
     if (weapon == 0) then begin
         return 0;
     end
